@@ -30,6 +30,14 @@ class VoiceActivityDetector:
         except Exception as e:
             logger.warning(f"VAD not available: {e}")
             self.model = None
+
+    def _frame_size(self, sample_rate: int) -> Optional[int]:
+        """Return a valid Silero frame size for the given sample rate."""
+        if sample_rate == 8000:
+            return 256
+        if sample_rate == 16000:
+            return 512
+        return None
     
     def is_speech(self, audio: np.ndarray, sample_rate: int = 16000) -> bool:
         """Check if audio contains speech."""
@@ -37,9 +45,29 @@ class VoiceActivityDetector:
             return True  # Assume speech if no VAD
         try:
             import torch
-            audio_tensor = torch.from_numpy(audio).float()
-            speech_prob = self.model(audio_tensor, sample_rate).item()
-            return speech_prob > self.threshold
+
+            frame_size = self._frame_size(sample_rate)
+            if frame_size is None:
+                logger.warning(f"Unsupported VAD sample rate: {sample_rate}")
+                return True
+
+            audio = np.asarray(audio, dtype=np.float32).flatten()
+            if len(audio) == 0:
+                return False
+
+            # Silero expects exact frame sizes, so evaluate in chunks and
+            # return True if any chunk crosses the speech threshold.
+            for start in range(0, len(audio), frame_size):
+                chunk = audio[start:start + frame_size]
+                if len(chunk) < frame_size:
+                    chunk = np.pad(chunk, (0, frame_size - len(chunk)))
+
+                audio_tensor = torch.from_numpy(chunk).float()
+                speech_prob = self.model(audio_tensor, sample_rate).item()
+                if speech_prob > self.threshold:
+                    return True
+
+            return False
         except Exception as e:
             logger.error(f"VAD error: {e}")
             return True

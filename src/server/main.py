@@ -21,6 +21,7 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from loguru import logger
+from pydantic import Field
 from pydantic_settings import BaseSettings
 
 from .stt import WhisperSTT
@@ -57,11 +58,17 @@ class Settings(BaseSettings):
     backend_type: str = "openai"  # openai, openclaw, custom
     backend_url: str = "https://api.openai.com/v1"
     backend_model: str = "gpt-4o-mini"
-    openai_api_key: Optional[str] = None
+    openai_api_key: Optional[str] = Field(default=None, validation_alias="OPENAI_API_KEY")
     
     # OpenClaw Gateway (auto-detected from OPENCLAW_GATEWAY_URL + TOKEN)
-    openclaw_gateway_url: Optional[str] = None
-    openclaw_gateway_token: Optional[str] = None
+    openclaw_gateway_url: Optional[str] = Field(
+        default=None,
+        validation_alias="OPENCLAW_GATEWAY_URL",
+    )
+    openclaw_gateway_token: Optional[str] = Field(
+        default=None,
+        validation_alias="OPENCLAW_GATEWAY_TOKEN",
+    )
     
     # Audio
     sample_rate: int = 16000
@@ -393,5 +400,6 @@ if __name__ == "__main__":
         port=settings.port,
         reload=True,
     )
+
 
 

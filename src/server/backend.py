@@ -157,3 +157,4 @@ class AIBackend:
     def clear_history(self):
         """Clear conversation history."""
         self.conversation_history = []
+

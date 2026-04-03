@@ -49,6 +49,9 @@ class Settings(BaseSettings):
     # TTS
     tts_model: str = "chatterbox"
     tts_voice: Optional[str] = None  # Path to voice sample for cloning
+    tts_url: Optional[str] = None
+    tts_api_key: Optional[str] = None
+    tts_voice_id: Optional[str] = None
     
     # AI Backend
     backend_type: str = "openai"  # openai, openclaw, custom
@@ -102,7 +105,11 @@ async def startup():
     # Initialize TTS
     logger.info(f"Loading TTS model: {settings.tts_model}")
     tts = ChatterboxTTS(
+        model_name=settings.tts_model,
         voice_sample=settings.tts_voice,
+        base_url=settings.tts_url,
+        api_key=settings.tts_api_key,
+        voice_id=settings.tts_voice_id or os.getenv("ELEVENLABS_VOICE_ID"),
     )
     
     # Initialize AI backend
@@ -386,3 +393,5 @@ if __name__ == "__main__":
         port=settings.port,
         reload=True,
     )
+
+

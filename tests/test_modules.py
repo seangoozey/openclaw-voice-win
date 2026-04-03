@@ -52,7 +52,7 @@ class TestChatterboxTTS:
         """Test that TTS initializes (may be mock or real)."""
         tts = ChatterboxTTS()
         assert tts is not None
-        assert tts._backend in ["elevenlabs", "chatterbox", "xtts", "pyttsx3", "mock"]
+        assert tts._backend in ["elevenlabs", "chatterbox", "chatterbox-http", "xtts", "pyttsx3", "mock"]
     
     @pytest.mark.asyncio
     async def test_synthesize_returns_audio(self):
@@ -63,6 +63,10 @@ class TestChatterboxTTS:
         assert result.dtype == np.float32
         assert len(result) > 0
 
+    def test_remote_backend_uses_configured_url(self):
+        """Test that a configured TTS URL enables remote chatterbox mode."""
+        tts = ChatterboxTTS(base_url="http://127.0.0.1:8000/v1/audio/speech")
+        assert tts._backend == "chatterbox-http"
 
 class TestAIBackend:
     """Tests for AI Backend module."""
@@ -160,3 +164,7 @@ class TestIntegration:
 # Run tests with: pytest tests/ -v
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
+
+
+
+

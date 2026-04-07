@@ -24,13 +24,21 @@ class ChatterboxTTS:
         voice_id: Optional[str] = None,
         base_url: Optional[str] = None,
         api_key: Optional[str] = None,
+        response_format: Optional[str] = None,
+        exaggeration: Optional[float] = None,
     ):
         self.model_name = model_name
         self.voice_sample = voice_sample
         self.device = device
-        self.voice_id = voice_id or "cgSgspJ2msm6clMCkdW9"
+        self.voice_id = voice_id or "default"
         self.base_url = base_url or os.environ.get("OPENCLAW_TTS_URL")
         self.api_key = api_key or os.environ.get("OPENCLAW_TTS_API_KEY")
+        self.response_format = response_format or os.environ.get("OPENCLAW_TTS_RESPONSE_FORMAT", "wav")
+        exaggeration_value = exaggeration
+        if exaggeration_value is None:
+            exaggeration_env = os.environ.get("OPENCLAW_TTS_EXAGGERATION")
+            exaggeration_value = float(exaggeration_env) if exaggeration_env else None
+        self.exaggeration = exaggeration_value
         self.model = None
         self._backend = "mock"
         self._elevenlabs_client = None
@@ -182,23 +190,17 @@ class ChatterboxTTS:
 
     def _synthesize_remote(self, text: str) -> np.ndarray:
         """Call a remote Chatterbox-compatible HTTP endpoint."""
-        headers = {"Accept": "audio/wav"}
+        headers = {"Accept": "audio/*"}
         if self.api_key:
             headers["Authorization"] = f"Bearer {self.api_key}"
 
-        payloads = [
-            {
-                "model": self.model_name if self.model_name not in {"auto", "chatterbox"} else "chatterbox",
-                "input": text,
-                "voice": self.voice_id or "alloy",
-                "response_format": "wav",
-            },
-            {
-                "text": text,
-                "voice": self.voice_id,
-                "format": "wav",
-            },
-        ]
+        payloads = [{
+            "model": "chatterbox",
+            "input": text,
+            "voice": self.voice_id or "default",
+            "response_format": self.response_format,
+            "exaggeration": self.exaggeration,
+        }]
 
         last_error: Optional[str] = None
         with httpx.Client(timeout=60.0) as client:
@@ -226,6 +228,19 @@ class ChatterboxTTS:
             if sample_width == 2:
                 pcm = np.frombuffer(frames, dtype=np.int16)
                 return pcm.astype(np.float32) / 32768.0
+
+        # Many local Chatterbox servers can emit MPEG/other containerized audio.
+        # Try librosa as a fallback decoder when raw PCM/WAV detection does not match.
+        try:
+            import soundfile as sf
+
+            audio_array, _ = sf.read(BytesIO(audio_bytes), dtype="float32")
+            if isinstance(audio_array, np.ndarray):
+                if audio_array.ndim > 1:
+                    audio_array = audio_array.mean(axis=1)
+                return audio_array.astype(np.float32)
+        except Exception:
+            pass
 
         pcm = np.frombuffer(audio_bytes, dtype=np.int16)
         return pcm.astype(np.float32) / 32768.0

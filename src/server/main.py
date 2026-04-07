@@ -46,6 +46,7 @@ class Settings(BaseSettings):
     # STT
     stt_model: str = "base"  # tiny, base, small, medium, large-v3-turbo
     stt_device: str = "auto"  # auto, cpu, cuda, mps
+    stt_allow_mock: bool = False
     
     # TTS
     tts_model: str = "chatterbox"
@@ -107,6 +108,7 @@ async def startup():
     stt = WhisperSTT(
         model_name=settings.stt_model,
         device=settings.stt_device,
+        allow_mock=settings.stt_allow_mock,
     )
     
     # Initialize TTS

@@ -22,14 +22,14 @@ class TestWhisperSTT:
     
     def test_init_loads_model(self):
         """Test that STT initializes (may be mock or real)."""
-        stt = WhisperSTT(model_name="tiny", device="cpu")
+        stt = WhisperSTT(model_name="tiny", device="cpu", allow_mock=True)
         assert stt is not None
         assert stt._backend in ["faster-whisper", "openai-whisper", "mock"]
     
     @pytest.mark.asyncio
     async def test_transcribe_returns_string(self):
         """Test that transcribe returns a string."""
-        stt = WhisperSTT(model_name="tiny", device="cpu")
+        stt = WhisperSTT(model_name="tiny", device="cpu", allow_mock=True)
         # Create 1 second of silence at 16kHz
         audio = np.zeros(16000, dtype=np.float32)
         result = await stt.transcribe(audio)
@@ -38,7 +38,7 @@ class TestWhisperSTT:
     @pytest.mark.asyncio
     async def test_transcribe_with_noise(self):
         """Test transcription with random noise (should return something)."""
-        stt = WhisperSTT(model_name="tiny", device="cpu")
+        stt = WhisperSTT(model_name="tiny", device="cpu", allow_mock=True)
         # Random noise
         audio = np.random.randn(16000).astype(np.float32) * 0.1
         result = await stt.transcribe(audio)
@@ -141,7 +141,7 @@ class TestIntegration:
     @pytest.mark.asyncio
     async def test_stt_tts_round_trip(self):
         """Test STT → TTS round trip (mock mode OK)."""
-        stt = WhisperSTT(model_name="tiny", device="cpu")
+        stt = WhisperSTT(model_name="tiny", device="cpu", allow_mock=True)
         tts = ChatterboxTTS()
         
         # Generate some audio (silence)

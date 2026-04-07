@@ -24,6 +24,7 @@ dependencies = [
     "pydantic>=2.5.0",
     "pydantic-settings>=2.1.0",
     "numpy>=1.26.0",
+    "faster-whisper>=1.0.0",
     "openai>=1.6.0",
     "httpx>=0.26.0",
     "loguru>=0.7.2",
@@ -31,15 +32,12 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-stt = [
-    "faster-whisper>=1.0.0",
-]
 tts = [
     "torch>=2.1.0",
     "torchaudio>=2.1.0",
 ]
 all = [
-    "openclaw-voice[stt,tts]",
+    "openclaw-voice[tts]",
 ]
 dev = [
     "pytest>=7.4.0",

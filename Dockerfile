@@ -34,7 +34,7 @@ COPY requirements.txt pyproject.toml ./
 # Create venv and install dependencies
 RUN uv venv && \
     . .venv/bin/activate && \
-    uv pip install -e ".[stt]" && \
+    uv pip install -e . && \
     uv pip install torch torchaudio --index-url https://download.pytorch.org/whl/cu121
 
 # Copy application code

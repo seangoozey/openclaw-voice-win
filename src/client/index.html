@@ -601,7 +601,7 @@
             switch (msg.type) {
                 case 'listening_started':
                     clearPendingAutoRestart();
-                    setStatus(continuousMode ? 'Listening (continuous)...' : 'Listening...', true);
+                    setStatus(msg.mode === 'wakeword' ? 'Waiting for wakeword...' : (continuousMode ? 'Listening (continuous)...' : 'Listening...'), true);
                     break;
                 case 'listening_stopped':
                     setStatus('Processing...');
@@ -650,6 +650,16 @@
                     if (msg.speech_detected) {
                         serverSpeechUntil = Date.now() + getConfigValue('vad_hold_ms');
                     }
+                    break;
+                case 'wakeword_status':
+                    if (msg.state === 'armed') {
+                        setStatus(`Waiting for "${msg.phrase}"...`, true);
+                    } else if (msg.state === 'active') {
+                        setStatus('Wakeword heard. Listening...', true);
+                    }
+                    break;
+                case 'wakeword_detected':
+                    setStatus(`Wakeword heard: ${msg.phrase}`, true);
                     break;
                 case 'pong':
                     break;
@@ -823,7 +833,10 @@
                 voiceBtn.classList.add('listening');
                 voiceBtn.textContent = 'Listening...';
                 
-                ws.send(JSON.stringify({ type: 'start_listening' }));
+                ws.send(JSON.stringify({
+                    type: 'start_listening',
+                    mode: continuousMode ? 'continuous' : 'manual',
+                }));
                 
             } catch (err) {
                 errorEl.textContent = `Microphone error: ${err.message}`;

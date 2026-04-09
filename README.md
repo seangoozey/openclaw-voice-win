@@ -16,6 +16,7 @@ Talk to your AI like you talk to Alexa — but self-hosted, private, and connect
 | 🎤 **Local STT** | Whisper runs locally via faster-whisper. Your voice never leaves your machine. |
 | 🔊 **Streaming TTS** | ElevenLabs with sentence-by-sentence streaming. Hear responses while they generate. |
 | 🎯 **Voice Activity Detection** | Silero VAD filters background noise. Works in noisy environments. |
+| 🗣️ **Wakeword Mode** | Optional local wakeword detection for hands-free activation before full STT. |
 | 🧹 **Smart Text Cleaning** | Strips markdown, hashtags, URLs before TTS. No more "hash hash". |
 | 🔌 **Any AI Backend** | OpenAI, Claude, or full OpenClaw agent with memory and tools. |
 | 🌐 **Browser-Based** | No app install. Works on desktop and mobile. |
@@ -78,6 +79,21 @@ PYTHONPATH=. ELEVENLABS_API_KEY="$ELEVENLABS_API_KEY" OPENAI_API_KEY="$OPENAI_AP
 | `OPENCLAW_TTS_API_KEY` | No | - | Bearer token for remote TTS endpoint |
 | `OPENCLAW_TTS_VOICE_ID` | No | - | Voice name/id sent to remote TTS or ElevenLabs |
 | `OPENCLAW_REQUIRE_AUTH` | No | `false` | Require API keys for clients |
+| `OPENCLAW_WAKEWORD_ENABLED` | No | `false` | Use local wakeword detection during continuous mode |
+| `OPENCLAW_WAKEWORD_PHRASE` | No | `hey claw` | Phrase to listen for before normal transcription |
+
+### Wakeword Mode
+
+Wakeword mode reuses the local Whisper pipeline to detect a phrase before normal STT begins. This keeps everything local and works well with `faster-whisper`, but it is heavier than a dedicated wakeword engine.
+
+Example:
+
+```env
+OPENCLAW_WAKEWORD_ENABLED=true
+OPENCLAW_WAKEWORD_PHRASE=hey claw
+```
+
+With that enabled, continuous mode will wait for the wake phrase, then switch into the existing listen/transcribe/respond flow.
 
 *One of `OPENAI_API_KEY` or `OPENCLAW_GATEWAY_URL` required.
 

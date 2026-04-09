@@ -28,6 +28,7 @@ from .stt import WhisperSTT
 from .tts import ChatterboxTTS
 from .backend import AIBackend
 from .vad import VoiceActivityDetector
+from .wakeword import WakeWordDetector, strip_wakeword
 from .auth import token_manager, load_keys_from_env, APIKey
 from .text_utils import clean_for_speech
 
@@ -74,6 +75,13 @@ class Settings(BaseSettings):
     # Audio
     sample_rate: int = 16000
     client_config_path: str = "voice-ui-config.json"
+    wakeword_enabled: bool = False
+    wakeword_phrase: str = "hey claw"
+    wakeword_window_seconds: float = 2.4
+    wakeword_min_audio_seconds: float = 1.2
+    wakeword_detect_interval_seconds: float = 0.8
+    wakeword_cooldown_seconds: float = 2.0
+    wakeword_preroll_seconds: float = 0.8
     
     class Config:
         env_prefix = "OPENCLAW_"
@@ -122,6 +130,65 @@ def save_client_config(config: ContinuousModeConfig) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(config.model_dump_json(indent=2), encoding="utf-8")
     return path
+
+
+async def stream_ai_response(websocket: WebSocket, transcript: str) -> None:
+    """Stream the AI response and audio back to the browser."""
+    logger.debug("Streaming AI response...")
+
+    full_response = ""
+    sentence_buffer = ""
+
+    async for chunk in backend.chat_stream(transcript):
+        full_response += chunk
+        sentence_buffer += chunk
+
+        await websocket.send_json({
+            "type": "response_chunk",
+            "text": chunk,
+        })
+
+        while any(sep in sentence_buffer for sep in [". ", "! ", "? ", ".\n", "!\n", "?\n"]):
+            earliest_idx = len(sentence_buffer)
+            for sep in [". ", "! ", "? ", ".\n", "!\n", "?\n"]:
+                idx = sentence_buffer.find(sep)
+                if idx != -1 and idx < earliest_idx:
+                    earliest_idx = idx + len(sep)
+
+            if earliest_idx >= len(sentence_buffer):
+                break
+
+            sentence = sentence_buffer[:earliest_idx].strip()
+            sentence_buffer = sentence_buffer[earliest_idx:]
+
+            if sentence:
+                speech_text = clean_for_speech(sentence)
+                if speech_text:
+                    logger.debug(f"Synthesizing: {speech_text[:50]}...")
+                    async for audio_chunk in tts.synthesize_stream(speech_text):
+                        audio_b64 = base64.b64encode(audio_chunk).decode()
+                        await websocket.send_json({
+                            "type": "audio_chunk",
+                            "data": audio_b64,
+                            "sample_rate": 24000,
+                        })
+
+    if sentence_buffer.strip():
+        speech_text = clean_for_speech(sentence_buffer.strip())
+        if speech_text:
+            async for audio_chunk in tts.synthesize_stream(speech_text):
+                audio_b64 = base64.b64encode(audio_chunk).decode()
+                await websocket.send_json({
+                    "type": "audio_chunk",
+                    "data": audio_b64,
+                    "sample_rate": 24000,
+                })
+
+    await websocket.send_json({
+        "type": "response_complete",
+        "text": full_response,
+    })
+    logger.info(f"Response complete: {full_response[:100]}...")
 
 # Global instances (initialized on startup)
 stt: Optional[WhisperSTT] = None
@@ -325,7 +392,9 @@ async def websocket_endpoint(websocket: WebSocket):
     
     audio_buffer = []
     is_listening = False
-    session_start = None
+    listening_mode = "manual"
+    wakeword_active = False
+    wakeword_detector: Optional[WakeWordDetector] = None
     
     try:
         while True:
@@ -335,19 +404,46 @@ async def websocket_endpoint(websocket: WebSocket):
             if msg["type"] == "start_listening":
                 is_listening = True
                 audio_buffer = []
-                await websocket.send_json({"type": "listening_started"})
+                listening_mode = msg.get("mode", "manual")
+                wakeword_active = not (settings.wakeword_enabled and listening_mode == "continuous")
+                wakeword_detector = None
+
+                if settings.wakeword_enabled and listening_mode == "continuous":
+                    wakeword_detector = WakeWordDetector(
+                        stt=stt,
+                        phrase=settings.wakeword_phrase,
+                        sample_rate=settings.sample_rate,
+                        window_seconds=settings.wakeword_window_seconds,
+                        min_audio_seconds=settings.wakeword_min_audio_seconds,
+                        detect_interval_seconds=settings.wakeword_detect_interval_seconds,
+                        cooldown_seconds=settings.wakeword_cooldown_seconds,
+                        preroll_seconds=settings.wakeword_preroll_seconds,
+                    )
+                    await websocket.send_json({
+                        "type": "wakeword_status",
+                        "state": "armed",
+                        "phrase": settings.wakeword_phrase,
+                    })
+
+                await websocket.send_json({
+                    "type": "listening_started",
+                    "mode": "active" if wakeword_active else "wakeword",
+                })
                 logger.debug("Started listening")
                 
             elif msg["type"] == "stop_listening":
                 is_listening = False
+                wakeword_detector = None
                 
-                if audio_buffer:
+                if audio_buffer and wakeword_active:
                     # Combine audio chunks
                     audio_data = np.concatenate(audio_buffer)
                     
                     # Transcribe
                     logger.debug("Transcribing audio...")
                     transcript = await stt.transcribe(audio_data)
+                    if settings.wakeword_enabled and listening_mode == "continuous":
+                        transcript = strip_wakeword(transcript, settings.wakeword_phrase)
                     
                     await websocket.send_json({
                         "type": "transcript",
@@ -357,70 +453,7 @@ async def websocket_endpoint(websocket: WebSocket):
                     logger.info(f"Transcript: {transcript}")
                     
                     if transcript.strip():
-                        # Stream AI response with progressive TTS
-                        logger.debug("Streaming AI response...")
-                        
-                        full_response = ""
-                        sentence_buffer = ""
-                        audio_chunks = []
-                        
-                        # Stream response and synthesize sentences as they complete
-                        async for chunk in backend.chat_stream(transcript):
-                            full_response += chunk
-                            sentence_buffer += chunk
-                            
-                            # Send text chunk for progressive display
-                            await websocket.send_json({
-                                "type": "response_chunk",
-                                "text": chunk,
-                            })
-                            
-                            # Check for sentence boundaries
-                            while any(sep in sentence_buffer for sep in ['. ', '! ', '? ', '.\n', '!\n', '?\n']):
-                                # Find first sentence boundary
-                                earliest_idx = len(sentence_buffer)
-                                for sep in ['. ', '! ', '? ', '.\n', '!\n', '?\n']:
-                                    idx = sentence_buffer.find(sep)
-                                    if idx != -1 and idx < earliest_idx:
-                                        earliest_idx = idx + len(sep)
-                                
-                                if earliest_idx < len(sentence_buffer):
-                                    sentence = sentence_buffer[:earliest_idx].strip()
-                                    sentence_buffer = sentence_buffer[earliest_idx:]
-                                    
-                                    if sentence:
-                                        # Clean and synthesize this sentence
-                                        speech_text = clean_for_speech(sentence)
-                                        if speech_text:
-                                            logger.debug(f"Synthesizing: {speech_text[:50]}...")
-                                            async for audio_chunk in tts.synthesize_stream(speech_text):
-                                                audio_b64 = base64.b64encode(audio_chunk).decode()
-                                                await websocket.send_json({
-                                                    "type": "audio_chunk",
-                                                    "data": audio_b64,
-                                                    "sample_rate": 24000,
-                                                })
-                                else:
-                                    break
-                        
-                        # Handle any remaining text
-                        if sentence_buffer.strip():
-                            speech_text = clean_for_speech(sentence_buffer.strip())
-                            if speech_text:
-                                async for audio_chunk in tts.synthesize_stream(speech_text):
-                                    audio_b64 = base64.b64encode(audio_chunk).decode()
-                                    await websocket.send_json({
-                                        "type": "audio_chunk",
-                                        "data": audio_b64,
-                                        "sample_rate": 24000,
-                                    })
-                        
-                        # Signal end of response
-                        await websocket.send_json({
-                            "type": "response_complete",
-                            "text": full_response,
-                        })
-                        logger.info(f"Response complete: {full_response[:100]}...")
+                        await stream_ai_response(websocket, transcript)
                 
                 audio_buffer = []
                 await websocket.send_json({"type": "listening_stopped"})
@@ -430,9 +463,26 @@ async def websocket_endpoint(websocket: WebSocket):
                 # Decode base64 audio
                 audio_bytes = base64.b64decode(msg["data"])
                 audio_np = np.frombuffer(audio_bytes, dtype=np.float32)
+
+                if not wakeword_active and wakeword_detector:
+                    preroll_audio = await wakeword_detector.process_chunk(audio_np)
+                    if preroll_audio is not None:
+                        wakeword_active = True
+                        if len(preroll_audio) > 0:
+                            audio_buffer.append(preroll_audio)
+                        await websocket.send_json({
+                            "type": "wakeword_detected",
+                            "phrase": settings.wakeword_phrase,
+                        })
+                        await websocket.send_json({
+                            "type": "wakeword_status",
+                            "state": "active",
+                            "phrase": settings.wakeword_phrase,
+                        })
+                    continue
+
                 audio_buffer.append(audio_np)
-                
-                # VAD check - notify client if speech detected
+
                 if vad and len(audio_np) > 0:
                     has_speech = vad.is_speech(audio_np)
                     await websocket.send_json({

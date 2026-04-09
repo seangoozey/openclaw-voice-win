@@ -35,6 +35,7 @@ def server():
     env = os.environ.copy()
     env['OPENCLAW_PORT'] = str(port)
     env['OPENCLAW_STT_MODEL'] = 'tiny'  # Use tiny for fast tests
+    env['OPENCLAW_CLIENT_CONFIG_PATH'] = '.test-client-config.json'
     
     proc = subprocess.Popen(
         [sys.executable, '-m', 'uvicorn', 'src.server.main:app', 
@@ -60,6 +61,9 @@ def server():
     # Cleanup
     proc.terminate()
     proc.wait(timeout=5)
+    config_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), '.test-client-config.json')
+    if os.path.exists(config_path):
+        os.remove(config_path)
 
 
 class TestServerHTTP:
@@ -75,6 +79,28 @@ class TestServerHTTP:
         assert response.status_code == 200
         assert "OpenClaw Voice" in response.text
         assert "voice-button" in response.text
+
+    def test_client_config_round_trip(self, server):
+        """Test persisted continuous-mode config endpoint."""
+        import httpx
+
+        _, http_url = server
+        config = {
+            "energy_threshold": 0.04,
+            "min_speech_ms": 400,
+            "silence_ms": 2200,
+            "restart_delay_ms": 1300,
+            "mic_warmup_ms": 1500,
+            "vad_hold_ms": 600,
+        }
+
+        save_response = httpx.post(f"{http_url}/api/client-config", json=config)
+        assert save_response.status_code == 200
+        assert save_response.json()["config"] == config
+
+        load_response = httpx.get(f"{http_url}/api/client-config")
+        assert load_response.status_code == 200
+        assert load_response.json()["config"] == config
 
 
 class TestServerWebSocket:

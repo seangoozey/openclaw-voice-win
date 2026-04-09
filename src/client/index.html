@@ -252,6 +252,92 @@
             padding: 2px 6px;
             border-radius: 4px;
         }
+
+        .config-panel {
+            margin: 0 0 20px;
+            text-align: left;
+            background: rgba(255, 255, 255, 0.04);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: 12px;
+            overflow: hidden;
+        }
+
+        .config-panel summary {
+            cursor: pointer;
+            list-style: none;
+            padding: 16px 18px;
+            font-weight: 600;
+            color: #f7c94b;
+        }
+
+        .config-panel summary::-webkit-details-marker {
+            display: none;
+        }
+
+        .config-body {
+            padding: 0 18px 18px;
+            display: grid;
+            gap: 14px;
+        }
+
+        .config-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            gap: 14px;
+        }
+
+        .config-field {
+            display: grid;
+            gap: 6px;
+        }
+
+        .config-field label {
+            font-size: 0.9rem;
+            color: #ddd;
+        }
+
+        .config-field input {
+            width: 100%;
+            padding: 10px 12px;
+            border-radius: 8px;
+            border: 1px solid #3f4658;
+            background: rgba(10, 13, 24, 0.9);
+            color: #fff;
+            font: inherit;
+        }
+
+        .config-help {
+            color: #8d95a8;
+            font-size: 0.82rem;
+            line-height: 1.5;
+        }
+
+        .config-actions {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+
+        .config-actions button {
+            padding: 10px 14px;
+            border-radius: 8px;
+            border: 1px solid #444;
+            background: transparent;
+            color: #ddd;
+            cursor: pointer;
+            font: inherit;
+        }
+
+        .config-actions button:hover {
+            border-color: #ff6b35;
+            color: #ff6b35;
+        }
+
+        .config-meta {
+            color: #7b8395;
+            font-size: 0.8rem;
+            line-height: 1.4;
+        }
     </style>
 </head>
 <body>
@@ -271,6 +357,44 @@
             <span class="toggle-label">Continuous Mode</span>
             <span class="toggle-hint">(hands-free, like Grok)</span>
         </div>
+
+        <details class="config-panel">
+            <summary>Continuous Mode Tuning</summary>
+            <div class="config-body">
+                <div class="config-grid">
+                    <div class="config-field">
+                        <label for="energyThreshold">Energy threshold</label>
+                        <input id="energyThreshold" type="number" min="0" max="1" step="0.001">
+                    </div>
+                    <div class="config-field">
+                        <label for="minSpeechMs">Minimum speech ms</label>
+                        <input id="minSpeechMs" type="number" min="0" max="10000" step="50">
+                    </div>
+                    <div class="config-field">
+                        <label for="silenceMs">Silence stop ms</label>
+                        <input id="silenceMs" type="number" min="100" max="15000" step="100">
+                    </div>
+                    <div class="config-field">
+                        <label for="restartDelayMs">Restart delay ms</label>
+                        <input id="restartDelayMs" type="number" min="0" max="10000" step="50">
+                    </div>
+                    <div class="config-field">
+                        <label for="micWarmupMs">Mic warmup ms</label>
+                        <input id="micWarmupMs" type="number" min="0" max="10000" step="50">
+                    </div>
+                    <div class="config-field">
+                        <label for="vadHoldMs">Server VAD hold ms</label>
+                        <input id="vadHoldMs" type="number" min="0" max="5000" step="50">
+                    </div>
+                </div>
+                <p class="config-help">Raise energy threshold or minimum speech time to ignore brief noises. Raise restart delay or mic warmup if the assistant sometimes hears its own TTS.</p>
+                <div class="config-actions">
+                    <button id="saveConfigBtn" type="button">Save Tuning</button>
+                    <button id="resetConfigBtn" type="button">Reset Defaults</button>
+                </div>
+                <p class="config-meta" id="configMeta">Loading tuning...</p>
+            </div>
+        </details>
         
         <p class="status" id="status">Ready</p>
         
@@ -304,22 +428,123 @@
         const errorEl = document.getElementById('error');
         const clearBtn = document.getElementById('clearBtn');
         const continuousModeToggle = document.getElementById('continuousMode');
+        const saveConfigBtn = document.getElementById('saveConfigBtn');
+        const resetConfigBtn = document.getElementById('resetConfigBtn');
+        const configMeta = document.getElementById('configMeta');
+        const configInputs = {
+            energy_threshold: document.getElementById('energyThreshold'),
+            min_speech_ms: document.getElementById('minSpeechMs'),
+            silence_ms: document.getElementById('silenceMs'),
+            restart_delay_ms: document.getElementById('restartDelayMs'),
+            mic_warmup_ms: document.getElementById('micWarmupMs'),
+            vad_hold_ms: document.getElementById('vadHoldMs'),
+        };
+
+        const defaultContinuousConfig = {
+            energy_threshold: 0.025,
+            min_speech_ms: 250,
+            silence_ms: 1800,
+            restart_delay_ms: 900,
+            mic_warmup_ms: 1200,
+            vad_hold_ms: 450,
+        };
         
         let ws = null;
-        let mediaRecorder = null;
         let audioContext = null;
         let audioSource = null;
         let audioProcessor = null;
+        let monitorGain = null;
         let mediaStream = null;
         let isRecording = false;
         let continuousMode = false;
-        let silenceTimer = null;
-        let silenceThreshold = 1500; // ms of silence before stopping
+        let continuousConfig = { ...defaultContinuousConfig };
+        let isAssistantSpeaking = false;
+        let pendingAutoRestart = null;
+        let recordingStartedAt = 0;
+        let speechCandidateStartAt = null;
+        let lastDetectedSpeechAt = 0;
+        let hasConfirmedSpeech = false;
+        let serverSpeechUntil = 0;
+        let responseCompleteReceived = false;
         
         // Get API key from URL params or localStorage
         function getApiKey() {
             const urlParams = new URLSearchParams(window.location.search);
             return urlParams.get('api_key') || localStorage.getItem('openclaw_api_key') || '';
+        }
+
+        function getConfigValue(name) {
+            return Number(continuousConfig[name] ?? defaultContinuousConfig[name]);
+        }
+
+        function applyConfigToInputs(config) {
+            Object.entries(configInputs).forEach(([key, input]) => {
+                input.value = String(config[key]);
+            });
+        }
+
+        function readConfigFromInputs() {
+            return {
+                energy_threshold: Number(configInputs.energy_threshold.value),
+                min_speech_ms: Number(configInputs.min_speech_ms.value),
+                silence_ms: Number(configInputs.silence_ms.value),
+                restart_delay_ms: Number(configInputs.restart_delay_ms.value),
+                mic_warmup_ms: Number(configInputs.mic_warmup_ms.value),
+                vad_hold_ms: Number(configInputs.vad_hold_ms.value),
+            };
+        }
+
+        async function loadContinuousConfig() {
+            try {
+                const response = await fetch('/api/client-config');
+                if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                const data = await response.json();
+                continuousConfig = { ...defaultContinuousConfig, ...data.config };
+                applyConfigToInputs(continuousConfig);
+                configMeta.textContent = `Saved to ${data.path}`;
+            } catch (err) {
+                continuousConfig = { ...defaultContinuousConfig };
+                applyConfigToInputs(continuousConfig);
+                configMeta.textContent = 'Using built-in defaults. Save to create the config file.';
+            }
+        }
+
+        async function saveContinuousConfig(config) {
+            const response = await fetch('/api/client-config', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(config),
+            });
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}`);
+            }
+            const data = await response.json();
+            continuousConfig = { ...defaultContinuousConfig, ...data.config };
+            applyConfigToInputs(continuousConfig);
+            configMeta.textContent = `Saved to ${data.path}`;
+        }
+
+        function clearPendingAutoRestart() {
+            if (pendingAutoRestart) {
+                clearTimeout(pendingAutoRestart);
+                pendingAutoRestart = null;
+            }
+        }
+
+        function isPlaybackSettled() {
+            return responseCompleteReceived && !isPlayingQueue && audioQueue.length === 0;
+        }
+
+        function scheduleAutoRestart() {
+            clearPendingAutoRestart();
+            if (!continuousMode || isRecording || isAssistantSpeaking) return;
+            setStatus('Ready to listen...', true);
+            pendingAutoRestart = setTimeout(() => {
+                pendingAutoRestart = null;
+                if (continuousMode && !isRecording && !isAssistantSpeaking) {
+                    startRecording();
+                }
+            }, getConfigValue('restart_delay_ms'));
         }
         
         // Connect to WebSocket
@@ -375,7 +600,8 @@
         function handleMessage(msg) {
             switch (msg.type) {
                 case 'listening_started':
-                    setStatus(continuousMode ? '🎙️ Listening (continuous)...' : 'Listening...', true);
+                    clearPendingAutoRestart();
+                    setStatus(continuousMode ? 'Listening (continuous)...' : 'Listening...', true);
                     break;
                 case 'listening_stopped':
                     setStatus('Processing...');
@@ -387,6 +613,7 @@
                     streamingText = '';
                     currentResponseElement = null;
                     audioQueue = [];
+                    responseCompleteReceived = false;
                     break;
                 case 'response_text':
                     // Legacy non-streaming response
@@ -400,18 +627,29 @@
                     break;
                 case 'audio_chunk':
                     // Queue audio chunk for playback
+                    isAssistantSpeaking = true;
                     queueAudioChunk(msg.data, msg.sample_rate);
                     break;
                 case 'response_complete':
                     // Finalize the response
+                    responseCompleteReceived = true;
                     if (currentResponseElement) {
-                        currentResponseElement.innerHTML = `<strong>AI:</strong> ${renderMarkdown(msg.text)}`;
+                        setTranscriptLine(currentResponseElement, 'AI', msg.text);
+                    }
+                    if (isPlaybackSettled()) {
+                        onAudioComplete();
                     }
                     break;
                 case 'audio_response':
                     // Legacy non-streaming audio
+                    isAssistantSpeaking = true;
                     playAudioWithCallback(msg.data, msg.sample_rate, onAudioComplete);
                     setStatus('Speaking...');
+                    break;
+                case 'vad_status':
+                    if (msg.speech_detected) {
+                        serverSpeechUntil = Date.now() + getConfigValue('vad_hold_ms');
+                    }
                     break;
                 case 'pong':
                     break;
@@ -424,7 +662,7 @@
                 currentResponseElement.className = 'assistant';
                 transcriptEl.appendChild(currentResponseElement);
             }
-            currentResponseElement.innerHTML = `<strong>AI:</strong> ${renderMarkdown(text)}`;
+            setTranscriptLine(currentResponseElement, 'AI', text);
             transcriptEl.scrollTop = transcriptEl.scrollHeight;
         }
         
@@ -438,7 +676,9 @@
         async function playNextInQueue() {
             if (audioQueue.length === 0) {
                 isPlayingQueue = false;
-                onAudioComplete();
+                if (responseCompleteReceived) {
+                    onAudioComplete();
+                }
                 return;
             }
             
@@ -480,11 +720,9 @@
         }
         
         function onAudioComplete() {
+            isAssistantSpeaking = false;
             if (continuousMode) {
-                setStatus('🎙️ Ready to listen...', true);
-                setTimeout(() => {
-                    if (continuousMode) startRecording();
-                }, 300);
+                scheduleAutoRestart();
             } else {
                 setStatus('Ready');
             }
@@ -498,11 +736,13 @@
         function addTranscript(speaker, text, className) {
             const p = document.createElement('p');
             p.className = className;
-            // Render markdown for assistant responses
-            const renderedText = className === 'assistant' ? renderMarkdown(text) : escapeHtml(text);
-            p.innerHTML = `<strong>${speaker}:</strong> ${renderedText}`;
+            setTranscriptLine(p, speaker, text);
             transcriptEl.appendChild(p);
             transcriptEl.scrollTop = transcriptEl.scrollHeight;
+        }
+
+        function setTranscriptLine(element, speaker, text) {
+            element.textContent = `${speaker}: ${text}`;
         }
         
         function escapeHtml(text) {
@@ -511,30 +751,13 @@
             return div.innerHTML;
         }
         
-        function renderMarkdown(text) {
-            // Simple markdown renderer
-            return text
-                // Code blocks
-                .replace(/```[\s\S]*?```/g, '<code class="block">code</code>')
-                // Inline code
-                .replace(/`([^`]+)`/g, '<code>$1</code>')
-                // Bold
-                .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
-                // Italic
-                .replace(/\*([^*]+)\*/g, '<em>$1</em>')
-                // Headers (convert to bold)
-                .replace(/^#{1,3}\s+(.+)$/gm, '<strong>$1</strong>')
-                // Links
-                .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank">$1</a>')
-                // Line breaks
-                .replace(/\n/g, '<br>');
-        }
-        
         // Audio recording
         async function startRecording() {
-            if (isRecording) return;
+            if (isRecording || isAssistantSpeaking) return;
             
             try {
+                clearPendingAutoRestart();
+
                 // Reuse stream if available, otherwise get new one
                 if (!mediaStream) {
                     mediaStream = await navigator.mediaDevices.getUserMedia({ 
@@ -550,8 +773,14 @@
                 audioContext = new AudioContext({ sampleRate: 16000 });
                 audioSource = audioContext.createMediaStreamSource(mediaStream);
                 audioProcessor = audioContext.createScriptProcessor(4096, 1, 1);
-                
-                let lastSoundTime = Date.now();
+                monitorGain = audioContext.createGain();
+                monitorGain.gain.value = 0;
+
+                recordingStartedAt = Date.now();
+                speechCandidateStartAt = null;
+                lastDetectedSpeechAt = recordingStartedAt;
+                hasConfirmedSpeech = false;
+                serverSpeechUntil = 0;
                 
                 audioProcessor.onaudioprocess = (e) => {
                     if (isRecording && ws && ws.readyState === WebSocket.OPEN) {
@@ -559,25 +788,40 @@
                         const base64 = float32ToBase64(audioData);
                         ws.send(JSON.stringify({ type: 'audio', data: base64 }));
                         
-                        // Simple VAD: check if audio has energy
                         if (continuousMode) {
-                            const energy = audioData.reduce((sum, val) => sum + Math.abs(val), 0) / audioData.length;
-                            if (energy > 0.01) {
-                                lastSoundTime = Date.now();
-                            } else if (Date.now() - lastSoundTime > silenceThreshold) {
-                                // Silence detected - stop recording
-                                stopRecording();
+                            const now = Date.now();
+                            if (now - recordingStartedAt < getConfigValue('mic_warmup_ms')) {
+                                return;
+                            }
+
+                            const rms = Math.sqrt(audioData.reduce((sum, val) => sum + (val * val), 0) / audioData.length);
+                            const speechDetected = rms >= getConfigValue('energy_threshold') || serverSpeechUntil > now;
+
+                            if (speechDetected) {
+                                if (speechCandidateStartAt === null) {
+                                    speechCandidateStartAt = now;
+                                }
+                                lastDetectedSpeechAt = now;
+                                if (now - speechCandidateStartAt >= getConfigValue('min_speech_ms')) {
+                                    hasConfirmedSpeech = true;
+                                }
+                            } else {
+                                speechCandidateStartAt = null;
+                                if (hasConfirmedSpeech && now - lastDetectedSpeechAt >= getConfigValue('silence_ms')) {
+                                    stopRecording();
+                                }
                             }
                         }
                     }
                 };
                 
                 audioSource.connect(audioProcessor);
-                audioProcessor.connect(audioContext.destination);
+                audioProcessor.connect(monitorGain);
+                monitorGain.connect(audioContext.destination);
                 
                 isRecording = true;
                 voiceBtn.classList.add('listening');
-                voiceBtn.textContent = continuousMode ? '🎙️ Listening...' : 'Listening...';
+                voiceBtn.textContent = 'Listening...';
                 
                 ws.send(JSON.stringify({ type: 'start_listening' }));
                 
@@ -597,6 +841,10 @@
             if (audioProcessor) {
                 audioProcessor.disconnect();
                 audioProcessor = null;
+            }
+            if (monitorGain) {
+                monitorGain.disconnect();
+                monitorGain = null;
             }
             if (audioSource) {
                 audioSource.disconnect();
@@ -710,12 +958,13 @@
             voiceBtn.textContent = continuousMode ? 'Tap to Talk' : 'Hold to Talk';
             
             if (continuousMode) {
-                setStatus('🎙️ Continuous mode ON — tap to start', true);
+                setStatus('Continuous mode ON - tap to start', true);
                 // Pre-request mic permission
                 navigator.mediaDevices.getUserMedia({ audio: true })
                     .then(stream => { mediaStream = stream; })
                     .catch(err => { errorEl.textContent = `Mic access needed: ${err.message}`; });
             } else {
+                clearPendingAutoRestart();
                 setStatus('Ready');
                 // Release mic
                 if (mediaStream && !isRecording) {
@@ -724,8 +973,30 @@
                 }
             }
         });
+
+        saveConfigBtn.addEventListener('click', async () => {
+            try {
+                await saveContinuousConfig(readConfigFromInputs());
+                setStatus('Continuous tuning saved');
+                errorEl.textContent = '';
+            } catch (err) {
+                errorEl.textContent = `Could not save tuning: ${err.message}`;
+            }
+        });
+
+        resetConfigBtn.addEventListener('click', async () => {
+            try {
+                applyConfigToInputs(defaultContinuousConfig);
+                await saveContinuousConfig(defaultContinuousConfig);
+                setStatus('Continuous tuning reset');
+                errorEl.textContent = '';
+            } catch (err) {
+                errorEl.textContent = `Could not reset tuning: ${err.message}`;
+            }
+        });
         
         // Connect on load
+        loadContinuousConfig();
         connect();
         
         // Keep connection alive

@@ -21,7 +21,7 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from loguru import logger
-from pydantic import Field
+from pydantic import BaseModel, Field
 from pydantic_settings import BaseSettings
 
 from .stt import WhisperSTT
@@ -73,6 +73,7 @@ class Settings(BaseSettings):
     
     # Audio
     sample_rate: int = 16000
+    client_config_path: str = "voice-ui-config.json"
     
     class Config:
         env_prefix = "OPENCLAW_"
@@ -81,6 +82,46 @@ class Settings(BaseSettings):
 
 settings = Settings()
 app = FastAPI(title="OpenClaw Voice", version="0.1.0")
+
+
+class ContinuousModeConfig(BaseModel):
+    """Persisted client-side tuning for continuous listening."""
+
+    energy_threshold: float = 0.025
+    min_speech_ms: int = 250
+    silence_ms: int = 1800
+    restart_delay_ms: int = 900
+    mic_warmup_ms: int = 1200
+    vad_hold_ms: int = 450
+
+
+def _client_config_path() -> Path:
+    """Resolve the on-disk path for the browser tuning config."""
+    path = Path(settings.client_config_path)
+    if not path.is_absolute():
+        path = Path.cwd() / path
+    return path
+
+
+def load_client_config() -> ContinuousModeConfig:
+    """Load the persisted browser tuning config if present."""
+    path = _client_config_path()
+    if not path.exists():
+        return ContinuousModeConfig()
+
+    try:
+        return ContinuousModeConfig.model_validate_json(path.read_text(encoding="utf-8"))
+    except Exception as exc:
+        logger.warning(f"Failed to load client config from {path}: {exc}")
+        return ContinuousModeConfig()
+
+
+def save_client_config(config: ContinuousModeConfig) -> Path:
+    """Write the browser tuning config to disk."""
+    path = _client_config_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(config.model_dump_json(indent=2), encoding="utf-8")
+    return path
 
 # Global instances (initialized on startup)
 stt: Optional[WhisperSTT] = None
@@ -226,6 +267,27 @@ async def get_usage(api_key: str):
         return {"error": "Invalid API key"}
     
     return token_manager.get_usage(key)
+
+
+@app.get("/api/client-config")
+async def get_client_config():
+    """Return the persisted browser tuning config."""
+    config = load_client_config()
+    return {
+        "config": config.model_dump(),
+        "path": str(_client_config_path()),
+    }
+
+
+@app.post("/api/client-config")
+async def update_client_config(config: ContinuousModeConfig):
+    """Persist browser tuning config to disk."""
+    path = save_client_config(config)
+    return {
+        "ok": True,
+        "config": config.model_dump(),
+        "path": str(path),
+    }
 
 
 @app.websocket("/ws")

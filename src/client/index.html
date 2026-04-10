@@ -79,20 +79,39 @@
         }
 
         .collapse-btn {
+            position: absolute;
+            top: 50%;
+            left: 0;
+            transform: translate(-50%, -50%);
             border: 1px solid rgba(255, 255, 255, 0.12);
-            background: rgba(255, 255, 255, 0.03);
+            background: rgba(12, 18, 34, 0.92);
             color: #d9dfeb;
-            border-radius: 999px;
-            width: 36px;
-            height: 36px;
+            border-radius: 18px;
+            width: 56px;
+            min-height: 106px;
+            padding: 12px 8px;
             cursor: pointer;
             font: inherit;
+            font-family: Consolas, "Courier New", monospace;
+            font-size: 0.9rem;
+            font-weight: 700;
+            line-height: 1;
+            letter-spacing: 0.08em;
             transition: 0.2s ease;
+            z-index: 2;
         }
 
         .collapse-btn:hover {
             border-color: #ff6b35;
             color: #ff6b35;
+            background: rgba(20, 28, 48, 0.96);
+            box-shadow: 0 14px 28px rgba(0, 0, 0, 0.28);
+        }
+
+        .collapse-btn-text {
+            display: block;
+            white-space: pre-line;
+            text-align: center;
         }
 
         .panel-collapsed .conversation-shell {
@@ -118,11 +137,8 @@
         }
 
         .panel-collapsed .collapse-btn {
-            position: absolute;
-            top: 12px;
-            left: 50%;
-            transform: translateX(-50%) rotate(180deg);
-            z-index: 1;
+            left: 0;
+            transform: translate(-50%, -50%);
         }
         
         h1 {
@@ -522,9 +538,8 @@
             }
 
             .app-shell.panel-collapsed .collapse-btn {
-                left: auto;
-                right: 12px;
-                transform: rotate(180deg);
+                left: 0;
+                transform: translate(-35%, -50%);
             }
         }
     </style>
@@ -659,6 +674,17 @@
                 <p class="config-meta" id="wakewordConfigMeta">Loading wakeword settings...</p>
             </div>
         </details>
+
+        <details class="config-panel">
+            <summary>Server Controls</summary>
+            <div class="config-body">
+                <p class="config-help">Stop the local OpenClaw Voice server from this page. This disconnects the UI until you start the server again.</p>
+                <div class="config-actions">
+                    <button id="shutdownServerBtn" type="button">Stop Server</button>
+                </div>
+                <p class="config-meta">Use this only when you intentionally want the current server process to exit.</p>
+            </div>
+        </details>
         
         <p class="status" id="status">Ready</p>
         
@@ -674,7 +700,11 @@
         </div>
 
         <aside class="conversation-panel">
-            <button class="collapse-btn" id="collapseConversationBtn" type="button" aria-label="Collapse conversation panel">→</button>
+            <button class="collapse-btn" id="collapseConversationBtn" type="button" aria-label="Collapse conversation panel">
+                <span class="collapse-btn-text" id="collapseConversationBtnText">&gt;&gt;&gt;
+&gt;&gt;&gt;
+&gt;&gt;&gt;</span>
+            </button>
             <div class="conversation-shell">
                 <div class="conversation-header">
                     <h3 class="conversation-title">Conversation</h3>
@@ -702,6 +732,7 @@
         const errorEl = document.getElementById('error');
         const clearBtn = document.getElementById('clearBtn');
         const collapseConversationBtn = document.getElementById('collapseConversationBtn');
+        const collapseConversationBtnText = document.getElementById('collapseConversationBtnText');
         const modeHint = document.getElementById('modeHint');
         const meterFill = document.getElementById('meterFill');
         const meterThreshold = document.getElementById('meterThreshold');
@@ -710,6 +741,7 @@
         const listenModeInputs = Array.from(document.querySelectorAll('input[name="listenMode"]'));
         const saveConfigBtn = document.getElementById('saveConfigBtn');
         const resetConfigBtn = document.getElementById('resetConfigBtn');
+        const shutdownServerBtn = document.getElementById('shutdownServerBtn');
         const configMeta = document.getElementById('configMeta');
         const saveWakewordConfigBtn = document.getElementById('saveWakewordConfigBtn');
         const resetWakewordConfigBtn = document.getElementById('resetWakewordConfigBtn');
@@ -751,6 +783,7 @@
         };
         
         let ws = null;
+        let allowReconnect = true;
         let audioContext = null;
         let audioSource = null;
         let audioProcessor = null;
@@ -775,6 +808,13 @@
         function getApiKey() {
             const urlParams = new URLSearchParams(window.location.search);
             return urlParams.get('api_key') || localStorage.getItem('openclaw_api_key') || '';
+        }
+
+        function buildApiUrl(path) {
+            const apiKey = getApiKey();
+            if (!apiKey) return path;
+            const separator = path.includes('?') ? '&' : '?';
+            return `${path}${separator}api_key=${encodeURIComponent(apiKey)}`;
         }
 
         function getConfigValue(name) {
@@ -858,7 +898,7 @@
 
         async function loadContinuousConfig() {
             try {
-                const response = await fetch('/api/client-config');
+                const response = await fetch(buildApiUrl('/api/client-config'));
                 if (!response.ok) throw new Error(`HTTP ${response.status}`);
                 const data = await response.json();
                 continuousConfig = { ...defaultContinuousConfig, ...data.config };
@@ -873,7 +913,7 @@
 
         async function loadWakewordConfig() {
             try {
-                const response = await fetch('/api/wakeword-config');
+                const response = await fetch(buildApiUrl('/api/wakeword-config'));
                 if (!response.ok) throw new Error(`HTTP ${response.status}`);
                 const data = await response.json();
                 wakewordConfig = { ...defaultWakewordConfig, ...data.config };
@@ -887,7 +927,7 @@
         }
 
         async function saveContinuousConfig(config) {
-            const response = await fetch('/api/client-config', {
+            const response = await fetch(buildApiUrl('/api/client-config'), {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(config),
@@ -902,7 +942,7 @@
         }
 
         async function saveWakewordConfig(config) {
-            const response = await fetch('/api/wakeword-config', {
+            const response = await fetch(buildApiUrl('/api/wakeword-config'), {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(config),
@@ -986,11 +1026,17 @@
             ws = new WebSocket(wsUrl);
             
             ws.onopen = () => {
+                allowReconnect = true;
                 setStatus('Connected');
                 errorEl.textContent = '';
             };
             
             ws.onclose = (event) => {
+                if (!allowReconnect) {
+                    setStatus('Server stopped');
+                    errorEl.textContent = 'The server was stopped from the web interface.';
+                    return;
+                }
                 if (event.code === 4001) {
                     setStatus('❌ API key required');
                     errorEl.textContent = 'This server requires an API key. Add ?api_key=YOUR_KEY to the URL.';
@@ -1481,7 +1527,7 @@
         collapseConversationBtn.addEventListener('click', () => {
             appShell.classList.toggle('panel-collapsed');
             const isCollapsed = appShell.classList.contains('panel-collapsed');
-            collapseConversationBtn.textContent = isCollapsed ? '←' : '→';
+            collapseConversationBtnText.textContent = isCollapsed ? '<<<' : '>>>';
             collapseConversationBtn.setAttribute(
                 'aria-label',
                 isCollapsed ? 'Expand conversation panel' : 'Collapse conversation panel'
@@ -1552,6 +1598,29 @@
                 errorEl.textContent = '';
             } catch (err) {
                 errorEl.textContent = `Could not reset wakeword settings: ${err.message}`;
+            }
+        });
+
+        shutdownServerBtn.addEventListener('click', async () => {
+            if (!window.confirm('Stop the OpenClaw Voice server now?')) {
+                return;
+            }
+
+            try {
+                allowReconnect = false;
+                setStatus('Stopping server...');
+                errorEl.textContent = '';
+
+                await fetch(buildApiUrl('/api/shutdown'), {
+                    method: 'POST',
+                });
+
+                if (ws && ws.readyState === WebSocket.OPEN) {
+                    ws.close();
+                }
+            } catch (err) {
+                allowReconnect = true;
+                errorEl.textContent = `Could not stop server: ${err.message}`;
             }
         });
         

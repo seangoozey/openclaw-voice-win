@@ -72,6 +72,7 @@ PYTHONPATH=. ELEVENLABS_API_KEY="$ELEVENLABS_API_KEY" OPENAI_API_KEY="$OPENAI_AP
 | `OPENCLAW_GATEWAY_URL` | No | — | OpenClaw gateway URL for full agent |
 | `OPENCLAW_GATEWAY_TOKEN` | No | — | Gateway auth token |
 | `OPENCLAW_PORT` | No | `8765` | Server port |
+| `OPENCLAW_RELOAD` | No | `false` | Enable uvicorn auto-reload when launching this module directly |
 | `OPENCLAW_STT_MODEL` | No | `base` | Whisper model size |
 | `OPENCLAW_STT_DEVICE` | No | `auto` | Device: `auto`, `cpu`, `cuda`, `mps` |
 | `OPENCLAW_TTS_MODEL` | No | `chatterbox` | TTS backend: `chatterbox`, `elevenlabs`, `xtts`, `mock`, `auto` |

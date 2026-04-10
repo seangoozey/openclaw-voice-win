@@ -39,6 +39,7 @@ class Settings(BaseSettings):
     # Server
     host: str = "0.0.0.0"
     port: int = 8765
+    reload: bool = False
     
     # Auth
     require_auth: bool = False  # Set True for production
@@ -173,6 +174,13 @@ def save_wakeword_config(config: WakewordConfig) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(config.model_dump_json(indent=2), encoding="utf-8")
     return path
+
+
+async def _shutdown_process(delay_seconds: float = 0.25) -> None:
+    """Exit the current server process after the response is sent."""
+    await asyncio.sleep(delay_seconds)
+    logger.warning("Shutdown requested from web interface")
+    os._exit(0)
 
 
 async def stream_ai_response(websocket: WebSocket, transcript: str) -> None:
@@ -440,6 +448,16 @@ async def update_wakeword_config(config: WakewordConfig):
     }
 
 
+@app.post("/api/shutdown")
+async def shutdown_server():
+    """Stop the current server process."""
+    asyncio.create_task(_shutdown_process())
+    return {
+        "ok": True,
+        "message": "Server shutdown requested.",
+    }
+
+
 @app.websocket("/ws")
 @app.websocket("/voice/ws")
 async def websocket_endpoint(websocket: WebSocket):
@@ -603,7 +621,7 @@ if __name__ == "__main__":
         "src.server.main:app",
         host=settings.host,
         port=settings.port,
-        reload=True,
+        reload=settings.reload,
     )
 
 

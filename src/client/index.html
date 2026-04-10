@@ -904,6 +904,7 @@
         let recordingStartedAt = 0;
         let speechCandidateStartAt = null;
         let lastDetectedSpeechAt = 0;
+        let lastLocalSpeechAt = 0;
         let hasConfirmedSpeech = false;
         let serverSpeechUntil = 0;
         let responseCompleteReceived = false;
@@ -1245,6 +1246,7 @@
             recordingStartedAt = startAt;
             speechCandidateStartAt = confirmedSpeech ? startAt : null;
             lastDetectedSpeechAt = startAt;
+            lastLocalSpeechAt = confirmedSpeech ? startAt : 0;
             hasConfirmedSpeech = confirmedSpeech;
             serverSpeechUntil = 0;
             wakewordSpeechStartDeadline = 0;
@@ -1596,8 +1598,16 @@
                                 return;
                             }
 
-                            const useServerVadHold = !isWakewordMode();
-                            const speechDetected = rms >= getConfigValue('energy_threshold') || (useServerVadHold && serverSpeechUntil > now);
+                            const localSpeechDetected = rms >= getConfigValue('energy_threshold');
+                            if (localSpeechDetected) {
+                                lastLocalSpeechAt = now;
+                            }
+                            const recentLocalSpeechWindowMs = Math.max(getConfigValue('vad_hold_ms') * 2, 800);
+                            const useServerVadHold = !isWakewordMode()
+                                && serverSpeechUntil > now
+                                && lastLocalSpeechAt > 0
+                                && (now - lastLocalSpeechAt) <= recentLocalSpeechWindowMs;
+                            const speechDetected = localSpeechDetected || useServerVadHold;
 
                             if (speechDetected) {
                                 if (speechCandidateStartAt === null) {

@@ -775,11 +775,22 @@
         let isPlayingQueue = false;
         let currentResponseElement = null;
         let streamingText = '';
+        let wakewordTriggered = false;
+        let wakewordCueContext = null;
+
+        function resetSpeechTracking(startAt = Date.now()) {
+            recordingStartedAt = startAt;
+            speechCandidateStartAt = null;
+            lastDetectedSpeechAt = startAt;
+            hasConfirmedSpeech = false;
+            serverSpeechUntil = 0;
+        }
         
         function handleMessage(msg) {
             switch (msg.type) {
                 case 'listening_started':
                     clearPendingAutoRestart();
+                    wakewordTriggered = msg.mode !== 'wakeword';
                     setStatus(
                         msg.mode === 'wakeword'
                             ? 'Waiting for wakeword...'
@@ -837,12 +848,17 @@
                     break;
                 case 'wakeword_status':
                     if (msg.state === 'armed') {
+                        wakewordTriggered = false;
+                        resetSpeechTracking();
                         setStatus(`Waiting for "${msg.phrase}"...`, true);
                     } else if (msg.state === 'active') {
+                        wakewordTriggered = true;
+                        resetSpeechTracking();
                         setStatus('Wakeword heard. Listening...', true);
                     }
                     break;
                 case 'wakeword_detected':
+                    playWakewordDing();
                     setStatus(`Wakeword heard: ${msg.phrase}`, true);
                     break;
                 case 'pong':
@@ -858,6 +874,48 @@
             }
             setTranscriptLine(currentResponseElement, 'AI', text);
             scrollConversationToBottom();
+        }
+
+        function playWakewordDing() {
+            const AudioCtx = window.AudioContext || window.webkitAudioContext;
+            if (!AudioCtx) return;
+
+            if (!wakewordCueContext || wakewordCueContext.state === 'closed') {
+                wakewordCueContext = new AudioCtx();
+            }
+
+            const audioCtx = wakewordCueContext;
+            const startAt = audioCtx.currentTime + 0.01;
+            const gainNode = audioCtx.createGain();
+            const firstTone = audioCtx.createOscillator();
+            const secondTone = audioCtx.createOscillator();
+
+            gainNode.gain.setValueAtTime(0.0001, startAt);
+            gainNode.gain.exponentialRampToValueAtTime(0.14, startAt + 0.02);
+            gainNode.gain.exponentialRampToValueAtTime(0.0001, startAt + 0.28);
+
+            firstTone.type = 'sine';
+            firstTone.frequency.setValueAtTime(880, startAt);
+            firstTone.frequency.exponentialRampToValueAtTime(1174.66, startAt + 0.12);
+
+            secondTone.type = 'triangle';
+            secondTone.frequency.setValueAtTime(1174.66, startAt + 0.10);
+            secondTone.frequency.exponentialRampToValueAtTime(1567.98, startAt + 0.28);
+
+            firstTone.connect(gainNode);
+            secondTone.connect(gainNode);
+            gainNode.connect(audioCtx.destination);
+
+            firstTone.start(startAt);
+            firstTone.stop(startAt + 0.14);
+            secondTone.start(startAt + 0.10);
+            secondTone.stop(startAt + 0.30);
+
+            secondTone.onended = () => {
+                firstTone.disconnect();
+                secondTone.disconnect();
+                gainNode.disconnect();
+            };
         }
         
         function queueAudioChunk(base64Data, sampleRate) {
@@ -974,11 +1032,8 @@
                 monitorGain = audioContext.createGain();
                 monitorGain.gain.value = 0;
 
-                recordingStartedAt = Date.now();
-                speechCandidateStartAt = null;
-                lastDetectedSpeechAt = recordingStartedAt;
-                hasConfirmedSpeech = false;
-                serverSpeechUntil = 0;
+                wakewordTriggered = currentMode !== 'wakeword';
+                resetSpeechTracking();
                 
                 audioProcessor.onaudioprocess = (e) => {
                     if (isRecording && ws && ws.readyState === WebSocket.OPEN) {
@@ -987,6 +1042,10 @@
                         ws.send(JSON.stringify({ type: 'audio', data: base64 }));
                         
                         if (isAutoMode()) {
+                            if (isWakewordMode() && !wakewordTriggered) {
+                                return;
+                            }
+
                             const now = Date.now();
                             if (now - recordingStartedAt < getConfigValue('mic_warmup_ms')) {
                                 return;
@@ -1035,6 +1094,7 @@
             if (!isRecording) return;
             
             isRecording = false;
+            wakewordTriggered = false;
             voiceBtn.classList.remove('listening');
             updateVoiceButtonLabel();
             

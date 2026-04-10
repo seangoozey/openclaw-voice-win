@@ -180,6 +180,73 @@
             margin-bottom: 20px;
         }
 
+        .meter-panel {
+            margin: 0 auto 24px;
+            max-width: 420px;
+            padding: 14px 16px 16px;
+            border-radius: 18px;
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            text-align: left;
+        }
+
+        .meter-header {
+            display: flex;
+            justify-content: space-between;
+            gap: 12px;
+            margin-bottom: 10px;
+            font-size: 0.84rem;
+            color: #c9d0dd;
+        }
+
+        .meter-track {
+            position: relative;
+            height: 18px;
+            border-radius: 999px;
+            overflow: hidden;
+            background: rgba(10, 15, 28, 0.92);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+        }
+
+        .meter-threshold {
+            position: absolute;
+            top: -2px;
+            bottom: -2px;
+            width: 2px;
+            background: #f7c94b;
+            box-shadow: 0 0 10px rgba(247, 201, 75, 0.5);
+            z-index: 2;
+        }
+
+        .meter-fill {
+            position: absolute;
+            inset: 0 auto 0 0;
+            width: 0%;
+            border-radius: inherit;
+            background: linear-gradient(90deg, #2dd4bf 0%, #f7c94b 55%, #ff6b35 100%);
+            box-shadow: 0 0 18px rgba(45, 212, 191, 0.35);
+            transition: width 0.08s linear, box-shadow 0.08s linear, filter 0.08s linear;
+        }
+
+        .meter-fill.above-threshold {
+            box-shadow: 0 0 22px rgba(255, 107, 53, 0.6);
+            filter: saturate(1.2);
+        }
+
+        .meter-scale {
+            display: flex;
+            justify-content: space-between;
+            margin-top: 8px;
+            font-size: 0.76rem;
+            color: #7f8797;
+        }
+
+        .meter-caption {
+            margin-top: 8px;
+            font-size: 0.8rem;
+            color: #9ea7b9;
+        }
+
         .mode-title {
             font-size: 0.9rem;
             text-transform: uppercase;
@@ -472,6 +539,23 @@
         <button class="voice-button" id="voiceBtn">
             Hold to Talk
         </button>
+
+        <div class="meter-panel">
+            <div class="meter-header">
+                <span>Mic Input</span>
+                <span id="meterReadout">-60.0 dB / threshold -32.0 dB</span>
+            </div>
+            <div class="meter-track" aria-hidden="true">
+                <div class="meter-fill" id="meterFill"></div>
+                <div class="meter-threshold" id="meterThreshold"></div>
+            </div>
+            <div class="meter-scale">
+                <span>-60 dB</span>
+                <span>-30 dB</span>
+                <span>0 dB</span>
+            </div>
+            <p class="meter-caption" id="meterCaption">Watch this while speaking. The bar should cross the threshold marker when your voice is loud enough.</p>
+        </div>
         
         <div class="mode-section">
             <p class="mode-title">Listening Mode</p>
@@ -619,6 +703,10 @@
         const clearBtn = document.getElementById('clearBtn');
         const collapseConversationBtn = document.getElementById('collapseConversationBtn');
         const modeHint = document.getElementById('modeHint');
+        const meterFill = document.getElementById('meterFill');
+        const meterThreshold = document.getElementById('meterThreshold');
+        const meterReadout = document.getElementById('meterReadout');
+        const meterCaption = document.getElementById('meterCaption');
         const listenModeInputs = Array.from(document.querySelectorAll('input[name="listenMode"]'));
         const saveConfigBtn = document.getElementById('saveConfigBtn');
         const resetConfigBtn = document.getElementById('resetConfigBtn');
@@ -681,6 +769,7 @@
         let responseCompleteReceived = false;
         let wakewordConfig = { ...defaultWakewordConfig };
         let suppressProcessingOnStop = false;
+        let latestMeterDb = -60;
         
         // Get API key from URL params or localStorage
         function getApiKey() {
@@ -692,10 +781,37 @@
             return Number(continuousConfig[name] ?? defaultContinuousConfig[name]);
         }
 
+        function rmsToDb(rms) {
+            if (!Number.isFinite(rms) || rms <= 0) return -60;
+            return Math.max(-60, Math.min(0, 20 * Math.log10(rms)));
+        }
+
+        function dbToPercent(db) {
+            const normalized = (db + 60) / 60;
+            return Math.max(0, Math.min(1, normalized)) * 100;
+        }
+
+        function updateMicMeter(rms = 0) {
+            latestMeterDb = rmsToDb(rms);
+            const thresholdDb = rmsToDb(getConfigValue('energy_threshold'));
+            const levelPercent = dbToPercent(latestMeterDb);
+            const thresholdPercent = dbToPercent(thresholdDb);
+            const isAboveThreshold = rms >= getConfigValue('energy_threshold');
+
+            meterFill.style.width = `${levelPercent}%`;
+            meterFill.classList.toggle('above-threshold', isAboveThreshold);
+            meterThreshold.style.left = `${thresholdPercent}%`;
+            meterReadout.textContent = `${latestMeterDb.toFixed(1)} dB / threshold ${thresholdDb.toFixed(1)} dB`;
+            meterCaption.textContent = isAboveThreshold
+                ? 'Input is above the threshold.'
+                : 'Input is below the threshold.';
+        }
+
         function applyConfigToInputs(config) {
             Object.entries(configInputs).forEach(([key, input]) => {
                 input.value = String(config[key]);
             });
+            updateMicMeter(0);
         }
 
         function applyWakewordConfigToInputs(config) {
@@ -1175,6 +1291,8 @@
                         const audioData = e.inputBuffer.getChannelData(0);
                         const base64 = float32ToBase64(audioData);
                         ws.send(JSON.stringify({ type: 'audio', data: base64 }));
+                        const rms = Math.sqrt(audioData.reduce((sum, val) => sum + (val * val), 0) / audioData.length);
+                        updateMicMeter(rms);
                         
                         if (isAutoMode()) {
                             if (isWakewordMode() && !wakewordTriggered) {
@@ -1186,8 +1304,8 @@
                                 return;
                             }
 
-                            const rms = Math.sqrt(audioData.reduce((sum, val) => sum + (val * val), 0) / audioData.length);
-                            const speechDetected = rms >= getConfigValue('energy_threshold') || serverSpeechUntil > now;
+                            const useServerVadHold = !isWakewordMode();
+                            const speechDetected = rms >= getConfigValue('energy_threshold') || (useServerVadHold && serverSpeechUntil > now);
 
                             if (speechDetected) {
                                 if (speechCandidateStartAt === null) {
@@ -1260,6 +1378,8 @@
             if (ws && ws.readyState === WebSocket.OPEN) {
                 ws.send(JSON.stringify({ type: 'stop_listening' }));
             }
+
+            updateMicMeter(0);
         }
         
         // Audio playback

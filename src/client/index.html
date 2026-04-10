@@ -529,6 +529,52 @@
                 <p class="config-meta" id="configMeta">Loading tuning...</p>
             </div>
         </details>
+
+        <details class="config-panel">
+            <summary>Wakeword Settings</summary>
+            <div class="config-body">
+                <div class="config-grid">
+                    <div class="config-field">
+                        <label for="wakewordEnabled">Wakeword enabled</label>
+                        <select id="wakewordEnabled">
+                            <option value="true">Enabled</option>
+                            <option value="false">Disabled</option>
+                        </select>
+                    </div>
+                    <div class="config-field">
+                        <label for="wakewordPhrase">Wake phrase</label>
+                        <input id="wakewordPhrase" type="text" maxlength="120" placeholder="hey claw">
+                    </div>
+                    <div class="config-field">
+                        <label for="wakewordWindowSeconds">Window seconds</label>
+                        <input id="wakewordWindowSeconds" type="number" min="0.5" max="10" step="0.1">
+                    </div>
+                    <div class="config-field">
+                        <label for="wakewordMinAudioSeconds">Minimum audio seconds</label>
+                        <input id="wakewordMinAudioSeconds" type="number" min="0.1" max="10" step="0.1">
+                    </div>
+                    <div class="config-field">
+                        <label for="wakewordDetectIntervalSeconds">Detect interval seconds</label>
+                        <input id="wakewordDetectIntervalSeconds" type="number" min="0.1" max="10" step="0.1">
+                    </div>
+                    <div class="config-field">
+                        <label for="wakewordCooldownSeconds">Cooldown seconds</label>
+                        <input id="wakewordCooldownSeconds" type="number" min="0" max="30" step="0.1">
+                    </div>
+                    <div class="config-field">
+                        <label for="wakewordPrerollSeconds">Preroll seconds</label>
+                        <input id="wakewordPrerollSeconds" type="number" min="0" max="5" step="0.1">
+                    </div>
+                </div>
+                <p class="config-help">These settings control how the local wakeword detector listens before normal transcription begins.</p>
+                <p class="config-help">Changes apply the next time you arm wakeword mode. Restart the server only if you also change the `.env` defaults.</p>
+                <div class="config-actions">
+                    <button id="saveWakewordConfigBtn" type="button">Save Wakeword</button>
+                    <button id="resetWakewordConfigBtn" type="button">Reset Wakeword</button>
+                </div>
+                <p class="config-meta" id="wakewordConfigMeta">Loading wakeword settings...</p>
+            </div>
+        </details>
         
         <p class="status" id="status">Ready</p>
         
@@ -577,6 +623,9 @@
         const saveConfigBtn = document.getElementById('saveConfigBtn');
         const resetConfigBtn = document.getElementById('resetConfigBtn');
         const configMeta = document.getElementById('configMeta');
+        const saveWakewordConfigBtn = document.getElementById('saveWakewordConfigBtn');
+        const resetWakewordConfigBtn = document.getElementById('resetWakewordConfigBtn');
+        const wakewordConfigMeta = document.getElementById('wakewordConfigMeta');
         const configInputs = {
             energy_threshold: document.getElementById('energyThreshold'),
             min_speech_ms: document.getElementById('minSpeechMs'),
@@ -584,6 +633,15 @@
             restart_delay_ms: document.getElementById('restartDelayMs'),
             mic_warmup_ms: document.getElementById('micWarmupMs'),
             vad_hold_ms: document.getElementById('vadHoldMs'),
+        };
+        const wakewordInputs = {
+            enabled: document.getElementById('wakewordEnabled'),
+            phrase: document.getElementById('wakewordPhrase'),
+            window_seconds: document.getElementById('wakewordWindowSeconds'),
+            min_audio_seconds: document.getElementById('wakewordMinAudioSeconds'),
+            detect_interval_seconds: document.getElementById('wakewordDetectIntervalSeconds'),
+            cooldown_seconds: document.getElementById('wakewordCooldownSeconds'),
+            preroll_seconds: document.getElementById('wakewordPrerollSeconds'),
         };
 
         const defaultContinuousConfig = {
@@ -593,6 +651,15 @@
             restart_delay_ms: 900,
             mic_warmup_ms: 1200,
             vad_hold_ms: 450,
+        };
+        const defaultWakewordConfig = {
+            enabled: true,
+            phrase: 'hey claw',
+            window_seconds: 2.4,
+            min_audio_seconds: 1.2,
+            detect_interval_seconds: 0.8,
+            cooldown_seconds: 2.0,
+            preroll_seconds: 0.8,
         };
         
         let ws = null;
@@ -612,6 +679,8 @@
         let hasConfirmedSpeech = false;
         let serverSpeechUntil = 0;
         let responseCompleteReceived = false;
+        let wakewordConfig = { ...defaultWakewordConfig };
+        let suppressProcessingOnStop = false;
         
         // Get API key from URL params or localStorage
         function getApiKey() {
@@ -629,6 +698,16 @@
             });
         }
 
+        function applyWakewordConfigToInputs(config) {
+            Object.entries(wakewordInputs).forEach(([key, input]) => {
+                if (key === 'enabled') {
+                    input.value = String(Boolean(config[key]));
+                } else {
+                    input.value = String(config[key]);
+                }
+            });
+        }
+
         function readConfigFromInputs() {
             return {
                 energy_threshold: Number(configInputs.energy_threshold.value),
@@ -637,6 +716,18 @@
                 restart_delay_ms: Number(configInputs.restart_delay_ms.value),
                 mic_warmup_ms: Number(configInputs.mic_warmup_ms.value),
                 vad_hold_ms: Number(configInputs.vad_hold_ms.value),
+            };
+        }
+
+        function readWakewordConfigFromInputs() {
+            return {
+                enabled: wakewordInputs.enabled.value === 'true',
+                phrase: wakewordInputs.phrase.value.trim(),
+                window_seconds: Number(wakewordInputs.window_seconds.value),
+                min_audio_seconds: Number(wakewordInputs.min_audio_seconds.value),
+                detect_interval_seconds: Number(wakewordInputs.detect_interval_seconds.value),
+                cooldown_seconds: Number(wakewordInputs.cooldown_seconds.value),
+                preroll_seconds: Number(wakewordInputs.preroll_seconds.value),
             };
         }
 
@@ -655,6 +746,21 @@
             }
         }
 
+        async function loadWakewordConfig() {
+            try {
+                const response = await fetch('/api/wakeword-config');
+                if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                const data = await response.json();
+                wakewordConfig = { ...defaultWakewordConfig, ...data.config };
+                applyWakewordConfigToInputs(wakewordConfig);
+                wakewordConfigMeta.textContent = `${data.restart_message} Saved to ${data.path}`;
+            } catch (err) {
+                wakewordConfig = { ...defaultWakewordConfig };
+                applyWakewordConfigToInputs(wakewordConfig);
+                wakewordConfigMeta.textContent = 'Using built-in wakeword defaults. Save to create the config file.';
+            }
+        }
+
         async function saveContinuousConfig(config) {
             const response = await fetch('/api/client-config', {
                 method: 'POST',
@@ -668,6 +774,21 @@
             continuousConfig = { ...defaultContinuousConfig, ...data.config };
             applyConfigToInputs(continuousConfig);
             configMeta.textContent = `Saved to ${data.path}`;
+        }
+
+        async function saveWakewordConfig(config) {
+            const response = await fetch('/api/wakeword-config', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(config),
+            });
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}`);
+            }
+            const data = await response.json();
+            wakewordConfig = { ...defaultWakewordConfig, ...data.config };
+            applyWakewordConfigToInputs(wakewordConfig);
+            wakewordConfigMeta.textContent = `${data.restart_message} Saved to ${data.path}`;
         }
 
         function clearPendingAutoRestart() {
@@ -778,11 +899,12 @@
         let wakewordTriggered = false;
         let wakewordCueContext = null;
 
-        function resetSpeechTracking(startAt = Date.now()) {
+        function resetSpeechTracking(startAt = Date.now(), options = {}) {
+            const { confirmedSpeech = false } = options;
             recordingStartedAt = startAt;
-            speechCandidateStartAt = null;
+            speechCandidateStartAt = confirmedSpeech ? startAt : null;
             lastDetectedSpeechAt = startAt;
-            hasConfirmedSpeech = false;
+            hasConfirmedSpeech = confirmedSpeech;
             serverSpeechUntil = 0;
         }
         
@@ -790,6 +912,7 @@
             switch (msg.type) {
                 case 'listening_started':
                     clearPendingAutoRestart();
+                    suppressProcessingOnStop = false;
                     wakewordTriggered = msg.mode !== 'wakeword';
                     setStatus(
                         msg.mode === 'wakeword'
@@ -799,7 +922,11 @@
                     );
                     break;
                 case 'listening_stopped':
-                    setStatus('Processing...');
+                    if (suppressProcessingOnStop) {
+                        suppressProcessingOnStop = false;
+                    } else {
+                        setStatus('Processing...');
+                    }
                     break;
                 case 'transcript':
                     addTranscript('You', msg.text, 'user');
@@ -835,6 +962,14 @@
                         onAudioComplete();
                     }
                     break;
+                case 'empty_transcript':
+                    suppressProcessingOnStop = true;
+                    if (isAutoMode()) {
+                        scheduleAutoRestart();
+                    } else {
+                        setStatus('Ready');
+                    }
+                    break;
                 case 'audio_response':
                     // Legacy non-streaming audio
                     isAssistantSpeaking = true;
@@ -853,7 +988,7 @@
                         setStatus(`Waiting for "${msg.phrase}"...`, true);
                     } else if (msg.state === 'active') {
                         wakewordTriggered = true;
-                        resetSpeechTracking();
+                        resetSpeechTracking(Date.now(), { confirmedSpeech: true });
                         setStatus('Wakeword heard. Listening...', true);
                     }
                     break;
@@ -1265,10 +1400,36 @@
                 errorEl.textContent = `Could not reset tuning: ${err.message}`;
             }
         });
+
+        saveWakewordConfigBtn.addEventListener('click', async () => {
+            try {
+                const nextConfig = readWakewordConfigFromInputs();
+                if (!nextConfig.phrase) {
+                    throw new Error('Wake phrase cannot be empty');
+                }
+                await saveWakewordConfig(nextConfig);
+                setStatus('Wakeword settings saved');
+                errorEl.textContent = '';
+            } catch (err) {
+                errorEl.textContent = `Could not save wakeword settings: ${err.message}`;
+            }
+        });
+
+        resetWakewordConfigBtn.addEventListener('click', async () => {
+            try {
+                applyWakewordConfigToInputs(defaultWakewordConfig);
+                await saveWakewordConfig(defaultWakewordConfig);
+                setStatus('Wakeword settings reset');
+                errorEl.textContent = '';
+            } catch (err) {
+                errorEl.textContent = `Could not reset wakeword settings: ${err.message}`;
+            }
+        });
         
         // Connect on load
         updateModeUi();
         loadContinuousConfig();
+        loadWakewordConfig();
         connect();
         
         // Keep connection alive

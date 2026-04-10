@@ -80,7 +80,7 @@ PYTHONPATH=. ELEVENLABS_API_KEY="$ELEVENLABS_API_KEY" OPENAI_API_KEY="$OPENAI_AP
 | `OPENCLAW_TTS_VOICE_ID` | No | - | Voice name/id sent to remote TTS or ElevenLabs |
 | `OPENCLAW_MOCK_MODE` | No | `false` | Run with mock backend and mock TTS for offline testing |
 | `OPENCLAW_REQUIRE_AUTH` | No | `false` | Require API keys for clients |
-| `OPENCLAW_WAKEWORD_ENABLED` | No | `false` | Use local wakeword detection during continuous mode |
+| `OPENCLAW_WAKEWORD_ENABLED` | No | `true` | Use local wakeword detection during continuous mode |
 | `OPENCLAW_WAKEWORD_PHRASE` | No | `hey claw` | Phrase to listen for before normal transcription |
 
 ### Wakeword Mode

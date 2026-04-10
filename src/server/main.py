@@ -75,8 +75,9 @@ class Settings(BaseSettings):
     # Audio
     sample_rate: int = 16000
     client_config_path: str = "voice-ui-config.json"
+    wakeword_config_path: str = "wakeword-ui-config.json"
     mock_mode: bool = False
-    wakeword_enabled: bool = False
+    wakeword_enabled: bool = True
     wakeword_phrase: str = "hey claw"
     wakeword_window_seconds: float = 2.4
     wakeword_min_audio_seconds: float = 1.2
@@ -104,9 +105,29 @@ class ContinuousModeConfig(BaseModel):
     vad_hold_ms: int = 450
 
 
+class WakewordConfig(BaseModel):
+    """Persisted wakeword settings editable from the browser."""
+
+    enabled: bool = settings.wakeword_enabled
+    phrase: str = settings.wakeword_phrase
+    window_seconds: float = settings.wakeword_window_seconds
+    min_audio_seconds: float = settings.wakeword_min_audio_seconds
+    detect_interval_seconds: float = settings.wakeword_detect_interval_seconds
+    cooldown_seconds: float = settings.wakeword_cooldown_seconds
+    preroll_seconds: float = settings.wakeword_preroll_seconds
+
+
 def _client_config_path() -> Path:
     """Resolve the on-disk path for the browser tuning config."""
     path = Path(settings.client_config_path)
+    if not path.is_absolute():
+        path = Path.cwd() / path
+    return path
+
+
+def _wakeword_config_path() -> Path:
+    """Resolve the on-disk path for the wakeword UI config."""
+    path = Path(settings.wakeword_config_path)
     if not path.is_absolute():
         path = Path.cwd() / path
     return path
@@ -128,6 +149,27 @@ def load_client_config() -> ContinuousModeConfig:
 def save_client_config(config: ContinuousModeConfig) -> Path:
     """Write the browser tuning config to disk."""
     path = _client_config_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(config.model_dump_json(indent=2), encoding="utf-8")
+    return path
+
+
+def load_wakeword_config() -> WakewordConfig:
+    """Load the persisted wakeword config if present."""
+    path = _wakeword_config_path()
+    if not path.exists():
+        return WakewordConfig()
+
+    try:
+        return WakewordConfig.model_validate_json(path.read_text(encoding="utf-8"))
+    except Exception as exc:
+        logger.warning(f"Failed to load wakeword config from {path}: {exc}")
+        return WakewordConfig()
+
+
+def save_wakeword_config(config: WakewordConfig) -> Path:
+    """Write the wakeword config to disk."""
+    path = _wakeword_config_path()
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(config.model_dump_json(indent=2), encoding="utf-8")
     return path
@@ -373,6 +415,31 @@ async def update_client_config(config: ContinuousModeConfig):
     }
 
 
+@app.get("/api/wakeword-config")
+async def get_wakeword_config():
+    """Return the persisted wakeword config."""
+    config = load_wakeword_config()
+    return {
+        "config": config.model_dump(),
+        "path": str(_wakeword_config_path()),
+        "restart_required": False,
+        "restart_message": "Changes apply the next time you arm wakeword mode. Restart the server only if you also changed .env defaults.",
+    }
+
+
+@app.post("/api/wakeword-config")
+async def update_wakeword_config(config: WakewordConfig):
+    """Persist wakeword config to disk."""
+    path = save_wakeword_config(config)
+    return {
+        "ok": True,
+        "config": config.model_dump(),
+        "path": str(path),
+        "restart_required": False,
+        "restart_message": "Changes apply the next time you arm wakeword mode. Restart the server only if you also changed .env defaults.",
+    }
+
+
 @app.websocket("/ws")
 @app.websocket("/voice/ws")
 async def websocket_endpoint(websocket: WebSocket):
@@ -410,6 +477,7 @@ async def websocket_endpoint(websocket: WebSocket):
     is_listening = False
     listening_mode = "manual"
     wakeword_active = False
+    wakeword_config = load_wakeword_config()
     wakeword_detector: Optional[WakeWordDetector] = None
     
     try:
@@ -421,24 +489,25 @@ async def websocket_endpoint(websocket: WebSocket):
                 is_listening = True
                 audio_buffer = []
                 listening_mode = msg.get("mode", "manual")
-                wakeword_active = not (settings.wakeword_enabled and listening_mode == "wakeword")
+                wakeword_config = load_wakeword_config()
+                wakeword_active = not (wakeword_config.enabled and listening_mode == "wakeword")
                 wakeword_detector = None
 
-                if settings.wakeword_enabled and listening_mode == "wakeword":
+                if wakeword_config.enabled and listening_mode == "wakeword":
                     wakeword_detector = WakeWordDetector(
                         stt=stt,
-                        phrase=settings.wakeword_phrase,
+                        phrase=wakeword_config.phrase,
                         sample_rate=settings.sample_rate,
-                        window_seconds=settings.wakeword_window_seconds,
-                        min_audio_seconds=settings.wakeword_min_audio_seconds,
-                        detect_interval_seconds=settings.wakeword_detect_interval_seconds,
-                        cooldown_seconds=settings.wakeword_cooldown_seconds,
-                        preroll_seconds=settings.wakeword_preroll_seconds,
+                        window_seconds=wakeword_config.window_seconds,
+                        min_audio_seconds=wakeword_config.min_audio_seconds,
+                        detect_interval_seconds=wakeword_config.detect_interval_seconds,
+                        cooldown_seconds=wakeword_config.cooldown_seconds,
+                        preroll_seconds=wakeword_config.preroll_seconds,
                     )
                     await websocket.send_json({
                         "type": "wakeword_status",
                         "state": "armed",
-                        "phrase": settings.wakeword_phrase,
+                        "phrase": wakeword_config.phrase,
                     })
 
                 await websocket.send_json({
@@ -458,18 +527,24 @@ async def websocket_endpoint(websocket: WebSocket):
                     # Transcribe
                     logger.debug("Transcribing audio...")
                     transcript = await stt.transcribe(audio_data)
-                    if settings.wakeword_enabled and listening_mode == "wakeword":
-                        transcript = strip_wakeword(transcript, settings.wakeword_phrase)
-                    
-                    await websocket.send_json({
-                        "type": "transcript",
-                        "text": transcript,
-                        "final": True,
-                    })
-                    logger.info(f"Transcript: {transcript}")
-                    
-                    if transcript.strip():
+                    if wakeword_config.enabled and listening_mode == "wakeword":
+                        transcript = strip_wakeword(transcript, wakeword_config.phrase)
+                    transcript = transcript.strip()
+
+                    if transcript:
+                        await websocket.send_json({
+                            "type": "transcript",
+                            "text": transcript,
+                            "final": True,
+                        })
+                        logger.info(f"Transcript: {transcript}")
                         await stream_ai_response(websocket, transcript)
+                    else:
+                        logger.info("Ignoring empty transcript")
+                        await websocket.send_json({
+                            "type": "empty_transcript",
+                            "mode": listening_mode,
+                        })
                 
                 audio_buffer = []
                 await websocket.send_json({"type": "listening_stopped"})
@@ -488,12 +563,12 @@ async def websocket_endpoint(websocket: WebSocket):
                             audio_buffer.append(preroll_audio)
                         await websocket.send_json({
                             "type": "wakeword_detected",
-                            "phrase": settings.wakeword_phrase,
+                            "phrase": wakeword_config.phrase,
                         })
                         await websocket.send_json({
                             "type": "wakeword_status",
                             "state": "active",
-                            "phrase": settings.wakeword_phrase,
+                            "phrase": wakeword_config.phrase,
                         })
                     continue
 

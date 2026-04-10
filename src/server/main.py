@@ -108,6 +108,7 @@ class ContinuousModeConfig(BaseModel):
     restart_delay_ms: int = 900
     mic_warmup_ms: int = 1200
     vad_hold_ms: int = 450
+    wakeword_post_trigger_grace_ms: int = 5000
 
 
 class WakewordConfig(BaseModel):
@@ -120,6 +121,7 @@ class WakewordConfig(BaseModel):
     detect_interval_seconds: float = settings.wakeword_detect_interval_seconds
     cooldown_seconds: float = settings.wakeword_cooldown_seconds
     preroll_seconds: float = settings.wakeword_preroll_seconds
+    chime_volume: float = 1.0
 
 
 class ServerControlConfig(BaseModel):
@@ -776,6 +778,10 @@ async def websocket_endpoint(websocket: WebSocket):
 client_dir = Path(__file__).parent.parent / "client"
 if client_dir.exists():
     app.mount("/static", StaticFiles(directory=str(client_dir)), name="static")
+
+sounds_dir = Path(__file__).parent.parent.parent / "sounds"
+if sounds_dir.exists():
+    app.mount("/sounds", StaticFiles(directory=str(sounds_dir)), name="sounds")
 
 
 if __name__ == "__main__":

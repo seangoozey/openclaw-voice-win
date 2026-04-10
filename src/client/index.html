@@ -691,6 +691,10 @@
                         <label for="vadHoldMs">Server VAD hold ms <span class="info-badge" tabindex="0" data-info="How long the browser should trust the server's voice-activity detector after it reports speech. Higher values smooth detection; lower values make silence stop faster." aria-label="How long the browser should trust the server's voice-activity detector after it reports speech. Higher values smooth detection; lower values make silence stop faster.">i</span></label>
                         <input id="vadHoldMs" type="number" min="0" max="5000" step="50">
                     </div>
+                    <div class="config-field">
+                        <label for="wakewordPostTriggerGraceMs">Wakeword speech start ms <span class="info-badge" tabindex="0" data-info="How long wakeword mode should wait after the trigger for you to start speaking before it gives up and quietly re-arms. Raise this if you need more time after the wake phrase." aria-label="How long wakeword mode should wait after the trigger for you to start speaking before it gives up and quietly re-arms. Raise this if you need more time after the wake phrase.">i</span></label>
+                        <input id="wakewordPostTriggerGraceMs" type="number" min="0" max="15000" step="100">
+                    </div>
                 </div>
                 <p class="config-help">Raise energy threshold or minimum speech time to ignore brief noises. Raise restart delay or mic warmup if the assistant sometimes hears its own TTS.</p>
                 <div class="config-actions">
@@ -736,12 +740,17 @@
                         <label for="wakewordPrerollSeconds">Preroll seconds <span class="info-badge" tabindex="0" data-info="How much audio from just before the wakeword should be kept and added to the command recording. This can help avoid clipping the first words after the trigger." aria-label="How much audio from just before the wakeword should be kept and added to the command recording. This can help avoid clipping the first words after the trigger.">i</span></label>
                         <input id="wakewordPrerollSeconds" type="number" min="0" max="5" step="0.1">
                     </div>
+                    <div class="config-field">
+                        <label for="wakewordChimeVolume">Trigger chime volume <span class="info-badge" tabindex="0" data-info="Controls how loud the wakeword confirmation chime plays in the browser. Use the test button to preview it at the current slider value." aria-label="Controls how loud the wakeword confirmation chime plays in the browser. Use the test button to preview it at the current slider value.">i</span></label>
+                        <input id="wakewordChimeVolume" type="range" min="0" max="100" step="1">
+                    </div>
                 </div>
                 <p class="config-help">These settings control how the local wakeword detector listens before normal transcription begins.</p>
                 <p class="config-help">Changes apply the next time you arm wakeword mode. Restart the server only if you also change the `.env` defaults.</p>
                 <div class="config-actions">
                     <button id="saveWakewordConfigBtn" type="button">Save Wakeword</button>
                     <button id="resetWakewordConfigBtn" type="button">Reset Wakeword</button>
+                    <button id="testWakewordChimeBtn" type="button">Play Chime</button>
                 </div>
                 <p class="config-meta" id="wakewordConfigMeta">Loading wakeword settings...</p>
             </div>
@@ -832,6 +841,7 @@
         const serverControlHelp = document.getElementById('serverControlHelp');
         const saveWakewordConfigBtn = document.getElementById('saveWakewordConfigBtn');
         const resetWakewordConfigBtn = document.getElementById('resetWakewordConfigBtn');
+        const testWakewordChimeBtn = document.getElementById('testWakewordChimeBtn');
         const wakewordConfigMeta = document.getElementById('wakewordConfigMeta');
         const configInputs = {
             energy_threshold: document.getElementById('energyThreshold'),
@@ -840,6 +850,7 @@
             restart_delay_ms: document.getElementById('restartDelayMs'),
             mic_warmup_ms: document.getElementById('micWarmupMs'),
             vad_hold_ms: document.getElementById('vadHoldMs'),
+            wakeword_post_trigger_grace_ms: document.getElementById('wakewordPostTriggerGraceMs'),
         };
         const wakewordInputs = {
             enabled: document.getElementById('wakewordEnabled'),
@@ -849,6 +860,7 @@
             detect_interval_seconds: document.getElementById('wakewordDetectIntervalSeconds'),
             cooldown_seconds: document.getElementById('wakewordCooldownSeconds'),
             preroll_seconds: document.getElementById('wakewordPrerollSeconds'),
+            chime_volume: document.getElementById('wakewordChimeVolume'),
         };
         const serverControlInputs = {
             wakeword_power_enabled: document.getElementById('wakewordPowerEnabled'),
@@ -861,6 +873,7 @@
             restart_delay_ms: 900,
             mic_warmup_ms: 1200,
             vad_hold_ms: 450,
+            wakeword_post_trigger_grace_ms: 5000,
         };
         const defaultWakewordConfig = {
             enabled: true,
@@ -870,6 +883,7 @@
             detect_interval_seconds: 0.8,
             cooldown_seconds: 2.0,
             preroll_seconds: 0.8,
+            chime_volume: 1.0,
         };
         const defaultServerControlConfig = {
             wakeword_power_enabled: true,
@@ -897,7 +911,9 @@
         let serverControlConfig = { ...defaultServerControlConfig };
         let suppressProcessingOnStop = false;
         let latestMeterDb = -60;
+        let wakewordFlareTimeout = null;
         const CONTINUOUS_IDLE_TIMEOUT_MS = 30000;
+        let wakewordSpeechStartDeadline = 0;
         
         // Get API key from URL params or localStorage
         function getApiKey() {
@@ -962,6 +978,8 @@
             Object.entries(wakewordInputs).forEach(([key, input]) => {
                 if (key === 'enabled') {
                     input.value = String(Boolean(config[key]));
+                } else if (key === 'chime_volume') {
+                    input.value = String(Math.round((config[key] ?? 1.0) * 100));
                 } else {
                     input.value = String(config[key]);
                 }
@@ -982,6 +1000,7 @@
                 restart_delay_ms: Number(configInputs.restart_delay_ms.value),
                 mic_warmup_ms: Number(configInputs.mic_warmup_ms.value),
                 vad_hold_ms: Number(configInputs.vad_hold_ms.value),
+                wakeword_post_trigger_grace_ms: Number(configInputs.wakeword_post_trigger_grace_ms.value),
             };
         }
 
@@ -994,6 +1013,7 @@
                 detect_interval_seconds: Number(wakewordInputs.detect_interval_seconds.value),
                 cooldown_seconds: Number(wakewordInputs.cooldown_seconds.value),
                 preroll_seconds: Number(wakewordInputs.preroll_seconds.value),
+                chime_volume: Math.max(0, Math.min(1, Number(wakewordInputs.chime_volume.value) / 100)),
             };
         }
 
@@ -1218,6 +1238,7 @@
         let streamingText = '';
         let wakewordTriggered = false;
         let wakewordCueContext = null;
+        let wakewordCueAudio = null;
 
         function resetSpeechTracking(startAt = Date.now(), options = {}) {
             const { confirmedSpeech = false } = options;
@@ -1226,6 +1247,7 @@
             lastDetectedSpeechAt = startAt;
             hasConfirmedSpeech = confirmedSpeech;
             serverSpeechUntil = 0;
+            wakewordSpeechStartDeadline = 0;
         }
         
         function handleMessage(msg) {
@@ -1308,7 +1330,8 @@
                         setStatus(`Waiting for "${msg.phrase}"...`, true);
                     } else if (msg.state === 'active') {
                         wakewordTriggered = true;
-                        resetSpeechTracking(Date.now(), { confirmedSpeech: true });
+                        resetSpeechTracking();
+                        wakewordSpeechStartDeadline = Date.now() + getConfigValue('wakeword_post_trigger_grace_ms');
                         setStatus('Wakeword heard. Listening...', true);
                     }
                     break;
@@ -1334,11 +1357,43 @@
 
         function flashWakewordButton() {
             voiceBtn.classList.remove('wakeword-flare');
+            if (wakewordFlareTimeout) {
+                clearTimeout(wakewordFlareTimeout);
+                wakewordFlareTimeout = null;
+            }
             void voiceBtn.offsetWidth;
             voiceBtn.classList.add('wakeword-flare');
+            wakewordFlareTimeout = setTimeout(() => {
+                voiceBtn.classList.remove('wakeword-flare');
+                wakewordFlareTimeout = null;
+            }, 750);
+        }
+
+        function getWakewordChimeVolume() {
+            const rawValue = wakewordInputs?.chime_volume?.value;
+            const sliderValue = Number(rawValue);
+            if (Number.isFinite(sliderValue)) {
+                return Math.max(0, Math.min(1, sliderValue / 100));
+            }
+            return Math.max(0, Math.min(1, Number(wakewordConfig.chime_volume ?? 1.0)));
         }
 
         async function playWakewordDing() {
+            if (!wakewordCueAudio) {
+                wakewordCueAudio = new Audio('/sounds/chime.mp3');
+                wakewordCueAudio.preload = 'auto';
+            }
+            wakewordCueAudio.volume = getWakewordChimeVolume();
+
+            try {
+                wakewordCueAudio.pause();
+                wakewordCueAudio.currentTime = 0;
+                await wakewordCueAudio.play();
+                return;
+            } catch (err) {
+                console.warn('Wakeword chime file playback failed, falling back to synth ding:', err);
+            }
+
             const AudioCtx = window.AudioContext || window.webkitAudioContext;
             if (!AudioCtx) return;
 
@@ -1520,6 +1575,16 @@
                             }
 
                             const now = Date.now();
+                            if (isWakewordMode() && wakewordTriggered && !hasConfirmedSpeech) {
+                                if (wakewordSpeechStartDeadline && now < wakewordSpeechStartDeadline) {
+                                    return;
+                                }
+                                if (wakewordSpeechStartDeadline && now >= wakewordSpeechStartDeadline) {
+                                    suppressProcessingOnStop = true;
+                                    stopRecording();
+                                    return;
+                                }
+                            }
                             if (currentMode === 'continuous' && !hasConfirmedSpeech && now - recordingStartedAt >= CONTINUOUS_IDLE_TIMEOUT_MS) {
                                 suppressProcessingOnStop = true;
                                 setListeningMode('push');
@@ -1769,6 +1834,16 @@
                 errorEl.textContent = '';
             } catch (err) {
                 errorEl.textContent = `Could not reset wakeword settings: ${err.message}`;
+            }
+        });
+
+        testWakewordChimeBtn.addEventListener('click', async () => {
+            try {
+                await playWakewordDing();
+                setStatus('Playing wakeword chime preview');
+                errorEl.textContent = '';
+            } catch (err) {
+                errorEl.textContent = `Could not play wakeword chime: ${err.message}`;
             }
         });
 

@@ -581,8 +581,8 @@
             <div class="config-body">
                 <div class="config-grid">
                     <div class="config-field">
-                        <label for="energyThreshold">Energy threshold</label>
-                        <input id="energyThreshold" type="number" min="0" max="1" step="0.001">
+                        <label for="energyThreshold">Energy threshold (dB)</label>
+                        <input id="energyThreshold" type="number" min="-60" max="0" step="0.5">
                     </div>
                     <div class="config-field">
                         <label for="minSpeechMs">Minimum speech ms</label>
@@ -786,6 +786,11 @@
             return Math.max(-60, Math.min(0, 20 * Math.log10(rms)));
         }
 
+        function dbToRms(db) {
+            if (!Number.isFinite(db)) return 0;
+            return Math.max(0, Math.min(1, 10 ** (db / 20)));
+        }
+
         function dbToPercent(db) {
             const normalized = (db + 60) / 60;
             return Math.max(0, Math.min(1, normalized)) * 100;
@@ -809,7 +814,11 @@
 
         function applyConfigToInputs(config) {
             Object.entries(configInputs).forEach(([key, input]) => {
-                input.value = String(config[key]);
+                if (key === 'energy_threshold') {
+                    input.value = String(rmsToDb(config[key]).toFixed(1));
+                } else {
+                    input.value = String(config[key]);
+                }
             });
             updateMicMeter(0);
         }
@@ -826,7 +835,7 @@
 
         function readConfigFromInputs() {
             return {
-                energy_threshold: Number(configInputs.energy_threshold.value),
+                energy_threshold: dbToRms(Number(configInputs.energy_threshold.value)),
                 min_speech_ms: Number(configInputs.min_speech_ms.value),
                 silence_ms: Number(configInputs.silence_ms.value),
                 restart_delay_ms: Number(configInputs.restart_delay_ms.value),

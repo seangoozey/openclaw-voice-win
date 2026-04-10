@@ -186,10 +186,32 @@
         .voice-button.listening {
             animation: pulse 1.5s infinite;
         }
-        
+
+        .voice-button.wakeword-flare {
+            background: linear-gradient(135deg, #f7c94b 0%, #f2b705 100%);
+            box-shadow: 0 0 0 0 rgba(247, 201, 75, 0.7), 0 18px 56px rgba(247, 201, 75, 0.55);
+            color: #201400;
+            animation: wakewordFlare 0.7s ease-out;
+        }
+
         @keyframes pulse {
             0%, 100% { box-shadow: 0 10px 40px rgba(255, 107, 53, 0.3); }
             50% { box-shadow: 0 10px 60px rgba(255, 107, 53, 0.6); }
+        }
+
+        @keyframes wakewordFlare {
+            0% {
+                transform: scale(0.95);
+                box-shadow: 0 0 0 0 rgba(247, 201, 75, 0.85), 0 18px 56px rgba(247, 201, 75, 0.5);
+            }
+            45% {
+                transform: scale(1.03);
+                box-shadow: 0 0 0 18px rgba(247, 201, 75, 0.18), 0 20px 64px rgba(247, 201, 75, 0.65);
+            }
+            100% {
+                transform: scale(0.95);
+                box-shadow: 0 0 0 28px rgba(247, 201, 75, 0), 0 10px 40px rgba(255, 107, 53, 0.3);
+            }
         }
         
         .mode-section {
@@ -728,11 +750,22 @@
         <details class="config-panel">
             <summary>Server Controls</summary>
             <div class="config-body">
-                <p class="config-help">Stop the local OpenClaw Voice server from this page. This disconnects the UI until you start the server again.</p>
+                <div class="config-grid">
+                    <div class="config-field">
+                        <label for="wakewordPowerEnabled">Wakeword keeps PC awake / wakes display <span class="info-badge" tabindex="0" data-info="When enabled on a Windows backend, wakeword mode keeps the computer awake while armed, still allows the display to sleep, and tries to wake the display when the wakeword is detected." aria-label="When enabled on a Windows backend, wakeword mode keeps the computer awake while armed, still allows the display to sleep, and tries to wake the display when the wakeword is detected.">i</span></label>
+                        <select id="wakewordPowerEnabled">
+                            <option value="true">Enabled</option>
+                            <option value="false">Disabled</option>
+                        </select>
+                    </div>
+                </div>
+                <p class="config-help" id="serverControlHelp">Stop the local OpenClaw Voice server from this page. This disconnects the UI until you start the server again.</p>
                 <div class="config-actions">
+                    <button id="saveServerControlConfigBtn" type="button">Save Server Controls</button>
+                    <button id="resetServerControlConfigBtn" type="button">Reset Server Controls</button>
                     <button id="shutdownServerBtn" type="button">Stop Server</button>
                 </div>
-                <p class="config-meta">Use this only when you intentionally want the current server process to exit.</p>
+                <p class="config-meta" id="serverControlMeta">Use this only when you intentionally want the current server process to exit.</p>
             </div>
         </details>
         
@@ -791,8 +824,12 @@
         const listenModeInputs = Array.from(document.querySelectorAll('input[name="listenMode"]'));
         const saveConfigBtn = document.getElementById('saveConfigBtn');
         const resetConfigBtn = document.getElementById('resetConfigBtn');
+        const saveServerControlConfigBtn = document.getElementById('saveServerControlConfigBtn');
+        const resetServerControlConfigBtn = document.getElementById('resetServerControlConfigBtn');
         const shutdownServerBtn = document.getElementById('shutdownServerBtn');
         const configMeta = document.getElementById('configMeta');
+        const serverControlMeta = document.getElementById('serverControlMeta');
+        const serverControlHelp = document.getElementById('serverControlHelp');
         const saveWakewordConfigBtn = document.getElementById('saveWakewordConfigBtn');
         const resetWakewordConfigBtn = document.getElementById('resetWakewordConfigBtn');
         const wakewordConfigMeta = document.getElementById('wakewordConfigMeta');
@@ -813,6 +850,9 @@
             cooldown_seconds: document.getElementById('wakewordCooldownSeconds'),
             preroll_seconds: document.getElementById('wakewordPrerollSeconds'),
         };
+        const serverControlInputs = {
+            wakeword_power_enabled: document.getElementById('wakewordPowerEnabled'),
+        };
 
         const defaultContinuousConfig = {
             energy_threshold: 0.025,
@@ -830,6 +870,9 @@
             detect_interval_seconds: 0.8,
             cooldown_seconds: 2.0,
             preroll_seconds: 0.8,
+        };
+        const defaultServerControlConfig = {
+            wakeword_power_enabled: true,
         };
         
         let ws = null;
@@ -851,8 +894,10 @@
         let serverSpeechUntil = 0;
         let responseCompleteReceived = false;
         let wakewordConfig = { ...defaultWakewordConfig };
+        let serverControlConfig = { ...defaultServerControlConfig };
         let suppressProcessingOnStop = false;
         let latestMeterDb = -60;
+        const CONTINUOUS_IDLE_TIMEOUT_MS = 30000;
         
         // Get API key from URL params or localStorage
         function getApiKey() {
@@ -923,6 +968,12 @@
             });
         }
 
+        function applyServerControlConfigToInputs(config) {
+            Object.entries(serverControlInputs).forEach(([key, input]) => {
+                input.value = String(Boolean(config[key]));
+            });
+        }
+
         function readConfigFromInputs() {
             return {
                 energy_threshold: dbToRms(Number(configInputs.energy_threshold.value)),
@@ -943,6 +994,12 @@
                 detect_interval_seconds: Number(wakewordInputs.detect_interval_seconds.value),
                 cooldown_seconds: Number(wakewordInputs.cooldown_seconds.value),
                 preroll_seconds: Number(wakewordInputs.preroll_seconds.value),
+            };
+        }
+
+        function readServerControlConfigFromInputs() {
+            return {
+                wakeword_power_enabled: serverControlInputs.wakeword_power_enabled.value === 'true',
             };
         }
 
@@ -976,6 +1033,23 @@
             }
         }
 
+        async function loadServerControlConfig() {
+            try {
+                const response = await fetch(buildApiUrl('/api/server-control-config'));
+                if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                const data = await response.json();
+                serverControlConfig = { ...defaultServerControlConfig, ...data.config };
+                applyServerControlConfigToInputs(serverControlConfig);
+                serverControlHelp.textContent = data.platform_message;
+                serverControlMeta.textContent = `Saved to ${data.path}`;
+            } catch (err) {
+                serverControlConfig = { ...defaultServerControlConfig };
+                applyServerControlConfigToInputs(serverControlConfig);
+                serverControlHelp.textContent = 'Stop the local OpenClaw Voice server from this page. This disconnects the UI until you start the server again.';
+                serverControlMeta.textContent = 'Using built-in server control defaults. Save to create the config file.';
+            }
+        }
+
         async function saveContinuousConfig(config) {
             const response = await fetch(buildApiUrl('/api/client-config'), {
                 method: 'POST',
@@ -1006,6 +1080,22 @@
             wakewordConfigMeta.textContent = `${data.restart_message} Saved to ${data.path}`;
         }
 
+        async function saveServerControlConfig(config) {
+            const response = await fetch(buildApiUrl('/api/server-control-config'), {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(config),
+            });
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}`);
+            }
+            const data = await response.json();
+            serverControlConfig = { ...defaultServerControlConfig, ...data.config };
+            applyServerControlConfigToInputs(serverControlConfig);
+            serverControlHelp.textContent = data.platform_message;
+            serverControlMeta.textContent = `Saved to ${data.path}`;
+        }
+
         function clearPendingAutoRestart() {
             if (pendingAutoRestart) {
                 clearTimeout(pendingAutoRestart);
@@ -1019,6 +1109,15 @@
 
         function isWakewordMode() {
             return currentMode === 'wakeword';
+        }
+
+        function setListeningMode(mode) {
+            currentMode = mode;
+            const selectedInput = listenModeInputs.find((input) => input.value === mode);
+            if (selectedInput) {
+                selectedInput.checked = true;
+            }
+            updateModeUi();
         }
 
         function updateVoiceButtonLabel() {
@@ -1214,6 +1313,7 @@
                     }
                     break;
                 case 'wakeword_detected':
+                    flashWakewordButton();
                     playWakewordDing();
                     setStatus(`Wakeword heard: ${msg.phrase}`, true);
                     break;
@@ -1230,6 +1330,12 @@
             }
             setTranscriptLine(currentResponseElement, 'AI', text);
             scrollConversationToBottom();
+        }
+
+        function flashWakewordButton() {
+            voiceBtn.classList.remove('wakeword-flare');
+            void voiceBtn.offsetWidth;
+            voiceBtn.classList.add('wakeword-flare');
         }
 
         async function playWakewordDing() {
@@ -1414,6 +1520,13 @@
                             }
 
                             const now = Date.now();
+                            if (currentMode === 'continuous' && !hasConfirmedSpeech && now - recordingStartedAt >= CONTINUOUS_IDLE_TIMEOUT_MS) {
+                                suppressProcessingOnStop = true;
+                                setListeningMode('push');
+                                setStatus('Continuous mode timed out. Back to push-to-talk.');
+                                stopRecording();
+                                return;
+                            }
                             if (now - recordingStartedAt < getConfigValue('mic_warmup_ms')) {
                                 return;
                             }
@@ -1595,8 +1708,7 @@
         
         listenModeInputs.forEach((input) => {
             input.addEventListener('change', (e) => {
-                currentMode = e.target.value;
-                updateModeUi();
+                setListeningMode(e.target.value);
 
                 if (isAutoMode()) {
                     setStatus(currentMode === 'wakeword' ? 'Wakeword mode ON - tap to arm' : 'Continuous mode ON - tap to start', true);
@@ -1660,6 +1772,27 @@
             }
         });
 
+        saveServerControlConfigBtn.addEventListener('click', async () => {
+            try {
+                await saveServerControlConfig(readServerControlConfigFromInputs());
+                setStatus('Server controls saved');
+                errorEl.textContent = '';
+            } catch (err) {
+                errorEl.textContent = `Could not save server controls: ${err.message}`;
+            }
+        });
+
+        resetServerControlConfigBtn.addEventListener('click', async () => {
+            try {
+                applyServerControlConfigToInputs(defaultServerControlConfig);
+                await saveServerControlConfig(defaultServerControlConfig);
+                setStatus('Server controls reset');
+                errorEl.textContent = '';
+            } catch (err) {
+                errorEl.textContent = `Could not reset server controls: ${err.message}`;
+            }
+        });
+
         shutdownServerBtn.addEventListener('click', async () => {
             if (!window.confirm('Stop the OpenClaw Voice server now?')) {
                 return;
@@ -1687,6 +1820,7 @@
         updateModeUi();
         loadContinuousConfig();
         loadWakewordConfig();
+        loadServerControlConfig();
         connect();
         
         // Keep connection alive

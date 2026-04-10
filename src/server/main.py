@@ -11,8 +11,11 @@ WebSocket server that handles:
 
 import asyncio
 import base64
+import ctypes
 import json
 import os
+import platform
+import threading
 from pathlib import Path
 from typing import Optional
 
@@ -77,6 +80,7 @@ class Settings(BaseSettings):
     sample_rate: int = 16000
     client_config_path: str = "voice-ui-config.json"
     wakeword_config_path: str = "wakeword-ui-config.json"
+    server_control_config_path: str = "server-control-ui-config.json"
     mock_mode: bool = False
     wakeword_enabled: bool = True
     wakeword_phrase: str = "hey claw"
@@ -118,6 +122,85 @@ class WakewordConfig(BaseModel):
     preroll_seconds: float = settings.wakeword_preroll_seconds
 
 
+class ServerControlConfig(BaseModel):
+    """Persisted server control settings editable from the browser."""
+
+    wakeword_power_enabled: bool = True
+
+
+class WakewordPowerController:
+    """Windows power/display integration for wakeword mode."""
+
+    ES_CONTINUOUS = 0x80000000
+    ES_SYSTEM_REQUIRED = 0x00000001
+    HWND_BROADCAST = 0xFFFF
+    MOUSEEVENTF_MOVE = 0x0001
+    SMTO_NORMAL = 0x0000
+    WM_SYSCOMMAND = 0x0112
+    SC_MONITORPOWER = 0xF170
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._active_count = 0
+        self._available = platform.system() == "Windows"
+        if self._available:
+            self._kernel32 = ctypes.windll.kernel32
+            self._user32 = ctypes.windll.user32
+        else:
+            self._kernel32 = None
+            self._user32 = None
+
+    @property
+    def available(self) -> bool:
+        return self._available
+
+    def arm(self) -> None:
+        if not self._available:
+            return
+        with self._lock:
+            self._active_count += 1
+            self._set_awake_state(True)
+
+    def disarm(self) -> None:
+        if not self._available:
+            return
+        with self._lock:
+            if self._active_count > 0:
+                self._active_count -= 1
+            if self._active_count == 0:
+                self._set_awake_state(False)
+
+    def wake_display(self) -> None:
+        if not self._available:
+            return
+        try:
+            result = ctypes.c_ulong()
+            self._user32.SendMessageTimeoutW(
+                self.HWND_BROADCAST,
+                self.WM_SYSCOMMAND,
+                self.SC_MONITORPOWER,
+                -1,
+                self.SMTO_NORMAL,
+                200,
+                ctypes.byref(result),
+            )
+            # A no-op mouse move often helps the display wake cleanly.
+            self._user32.mouse_event(self.MOUSEEVENTF_MOVE, 0, 0, 0, 0)
+        except Exception as exc:
+            logger.warning(f"Failed to wake display: {exc}")
+
+    def _set_awake_state(self, enabled: bool) -> None:
+        if not self._available:
+            return
+        try:
+            state = self.ES_CONTINUOUS
+            if enabled:
+                state |= self.ES_SYSTEM_REQUIRED
+            self._kernel32.SetThreadExecutionState(state)
+        except Exception as exc:
+            logger.warning(f"Failed to update wakeword power state: {exc}")
+
+
 def _client_config_path() -> Path:
     """Resolve the on-disk path for the browser tuning config."""
     path = Path(settings.client_config_path)
@@ -129,6 +212,14 @@ def _client_config_path() -> Path:
 def _wakeword_config_path() -> Path:
     """Resolve the on-disk path for the wakeword UI config."""
     path = Path(settings.wakeword_config_path)
+    if not path.is_absolute():
+        path = Path.cwd() / path
+    return path
+
+
+def _server_control_config_path() -> Path:
+    """Resolve the on-disk path for the server controls UI config."""
+    path = Path(settings.server_control_config_path)
     if not path.is_absolute():
         path = Path.cwd() / path
     return path
@@ -176,11 +267,35 @@ def save_wakeword_config(config: WakewordConfig) -> Path:
     return path
 
 
+def load_server_control_config() -> ServerControlConfig:
+    """Load the persisted server controls config if present."""
+    path = _server_control_config_path()
+    if not path.exists():
+        return ServerControlConfig()
+
+    try:
+        return ServerControlConfig.model_validate_json(path.read_text(encoding="utf-8"))
+    except Exception as exc:
+        logger.warning(f"Failed to load server control config from {path}: {exc}")
+        return ServerControlConfig()
+
+
+def save_server_control_config(config: ServerControlConfig) -> Path:
+    """Write the server controls config to disk."""
+    path = _server_control_config_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(config.model_dump_json(indent=2), encoding="utf-8")
+    return path
+
+
 async def _shutdown_process(delay_seconds: float = 0.25) -> None:
     """Exit the current server process after the response is sent."""
     await asyncio.sleep(delay_seconds)
     logger.warning("Shutdown requested from web interface")
     os._exit(0)
+
+
+power_controller = WakewordPowerController()
 
 
 async def stream_ai_response(websocket: WebSocket, transcript: str) -> None:
@@ -448,6 +563,39 @@ async def update_wakeword_config(config: WakewordConfig):
     }
 
 
+@app.get("/api/server-control-config")
+async def get_server_control_config():
+    """Return the persisted server controls config."""
+    config = load_server_control_config()
+    return {
+        "config": config.model_dump(),
+        "path": str(_server_control_config_path()),
+        "platform_supported": power_controller.available,
+        "platform_message": (
+            "Wakeword power integration is available on this Windows backend."
+            if power_controller.available
+            else "Wakeword power integration is only available when the backend runs on Windows."
+        ),
+    }
+
+
+@app.post("/api/server-control-config")
+async def update_server_control_config(config: ServerControlConfig):
+    """Persist server controls config to disk."""
+    path = save_server_control_config(config)
+    return {
+        "ok": True,
+        "config": config.model_dump(),
+        "path": str(path),
+        "platform_supported": power_controller.available,
+        "platform_message": (
+            "Wakeword power integration is available on this Windows backend."
+            if power_controller.available
+            else "Wakeword power integration is only available when the backend runs on Windows."
+        ),
+    }
+
+
 @app.post("/api/shutdown")
 async def shutdown_server():
     """Stop the current server process."""
@@ -496,6 +644,8 @@ async def websocket_endpoint(websocket: WebSocket):
     listening_mode = "manual"
     wakeword_active = False
     wakeword_config = load_wakeword_config()
+    server_control_config = load_server_control_config()
+    wakeword_power_armed = False
     wakeword_detector: Optional[WakeWordDetector] = None
     
     try:
@@ -508,10 +658,14 @@ async def websocket_endpoint(websocket: WebSocket):
                 audio_buffer = []
                 listening_mode = msg.get("mode", "manual")
                 wakeword_config = load_wakeword_config()
+                server_control_config = load_server_control_config()
                 wakeword_active = not (wakeword_config.enabled and listening_mode == "wakeword")
                 wakeword_detector = None
 
                 if wakeword_config.enabled and listening_mode == "wakeword":
+                    if server_control_config.wakeword_power_enabled:
+                        power_controller.arm()
+                        wakeword_power_armed = True
                     wakeword_detector = WakeWordDetector(
                         stt=stt,
                         phrase=wakeword_config.phrase,
@@ -537,6 +691,9 @@ async def websocket_endpoint(websocket: WebSocket):
             elif msg["type"] == "stop_listening":
                 is_listening = False
                 wakeword_detector = None
+                if wakeword_power_armed:
+                    power_controller.disarm()
+                    wakeword_power_armed = False
                 
                 if audio_buffer and wakeword_active:
                     # Combine audio chunks
@@ -577,6 +734,8 @@ async def websocket_endpoint(websocket: WebSocket):
                     preroll_audio = await wakeword_detector.process_chunk(audio_np)
                     if preroll_audio is not None:
                         wakeword_active = True
+                        if wakeword_power_armed and server_control_config.wakeword_power_enabled:
+                            power_controller.wake_display()
                         if len(preroll_audio) > 0:
                             audio_buffer.append(preroll_audio)
                         await websocket.send_json({
@@ -603,8 +762,12 @@ async def websocket_endpoint(websocket: WebSocket):
                 await websocket.send_json({"type": "pong"})
                 
     except WebSocketDisconnect:
+        if wakeword_power_armed:
+            power_controller.disarm()
         logger.info("Client disconnected")
     except Exception as e:
+        if wakeword_power_armed:
+            power_controller.disarm()
         logger.error(f"WebSocket error: {e}")
         await websocket.close()
 

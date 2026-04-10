@@ -433,7 +433,7 @@
             background: rgba(255, 255, 255, 0.04);
             border: 1px solid rgba(255, 255, 255, 0.08);
             border-radius: 12px;
-            overflow: hidden;
+            overflow: visible;
         }
 
         .config-panel summary {
@@ -466,8 +466,58 @@
         }
 
         .config-field label {
+            display: flex;
+            align-items: center;
+            gap: 8px;
             font-size: 0.9rem;
             color: #ddd;
+        }
+
+        .info-badge {
+            position: relative;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 18px;
+            height: 18px;
+            border-radius: 999px;
+            border: 1px solid rgba(255, 255, 255, 0.18);
+            background: rgba(255, 255, 255, 0.05);
+            color: #d9dfeb;
+            font-size: 0.74rem;
+            font-weight: 700;
+            line-height: 1;
+            cursor: help;
+            outline: none;
+        }
+
+        .info-badge::after {
+            content: attr(data-info);
+            position: absolute;
+            left: 50%;
+            bottom: calc(100% + 10px);
+            transform: translateX(-50%);
+            width: min(260px, 70vw);
+            padding: 10px 12px;
+            border-radius: 12px;
+            background: rgba(8, 11, 20, 0.96);
+            border: 1px solid rgba(255, 255, 255, 0.12);
+            color: #f4f7fb;
+            font-size: 0.78rem;
+            font-weight: 500;
+            line-height: 1.45;
+            text-align: left;
+            white-space: normal;
+            box-shadow: 0 16px 36px rgba(0, 0, 0, 0.34);
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.14s ease;
+            z-index: 4;
+        }
+
+        .info-badge:hover::after,
+        .info-badge:focus-visible::after {
+            opacity: 1;
         }
 
         .config-field input {
@@ -596,27 +646,27 @@
             <div class="config-body">
                 <div class="config-grid">
                     <div class="config-field">
-                        <label for="energyThreshold">Energy threshold (dB)</label>
+                        <label for="energyThreshold">Energy threshold (dB) <span class="info-badge" tabindex="0" data-info="The minimum mic input level that counts as speech. Raise it if background noise keeps triggering listening; lower it if quiet speech is missed." aria-label="The minimum mic input level that counts as speech. Raise it if background noise keeps triggering listening; lower it if quiet speech is missed.">i</span></label>
                         <input id="energyThreshold" type="number" min="-60" max="0" step="0.5">
                     </div>
                     <div class="config-field">
-                        <label for="minSpeechMs">Minimum speech ms</label>
+                        <label for="minSpeechMs">Minimum speech ms <span class="info-badge" tabindex="0" data-info="How long speech must continue before the app treats it as a real utterance. Higher values ignore short noises; lower values react faster." aria-label="How long speech must continue before the app treats it as a real utterance. Higher values ignore short noises; lower values react faster.">i</span></label>
                         <input id="minSpeechMs" type="number" min="0" max="10000" step="50">
                     </div>
                     <div class="config-field">
-                        <label for="silenceMs">Silence stop ms</label>
+                        <label for="silenceMs">Silence stop ms <span class="info-badge" tabindex="0" data-info="How long silence must last after speech before the current recording auto-stops and sends. Increase it for slower pauses; decrease it for faster turn-taking." aria-label="How long silence must last after speech before the current recording auto-stops and sends. Increase it for slower pauses; decrease it for faster turn-taking.">i</span></label>
                         <input id="silenceMs" type="number" min="100" max="15000" step="100">
                     </div>
                     <div class="config-field">
-                        <label for="restartDelayMs">Restart delay ms</label>
+                        <label for="restartDelayMs">Restart delay ms <span class="info-badge" tabindex="0" data-info="How long the app waits after a completed turn before it starts listening again in continuous or wakeword modes. Raising this can help avoid hearing the assistant's own voice." aria-label="How long the app waits after a completed turn before it starts listening again in continuous or wakeword modes. Raising this can help avoid hearing the assistant's own voice.">i</span></label>
                         <input id="restartDelayMs" type="number" min="0" max="10000" step="50">
                     </div>
                     <div class="config-field">
-                        <label for="micWarmupMs">Mic warmup ms</label>
+                        <label for="micWarmupMs">Mic warmup ms <span class="info-badge" tabindex="0" data-info="A short delay after recording starts before silence detection begins. Use this if the microphone or browser produces startup noise that causes false triggers." aria-label="A short delay after recording starts before silence detection begins. Use this if the microphone or browser produces startup noise that causes false triggers.">i</span></label>
                         <input id="micWarmupMs" type="number" min="0" max="10000" step="50">
                     </div>
                     <div class="config-field">
-                        <label for="vadHoldMs">Server VAD hold ms</label>
+                        <label for="vadHoldMs">Server VAD hold ms <span class="info-badge" tabindex="0" data-info="How long the browser should trust the server's voice-activity detector after it reports speech. Higher values smooth detection; lower values make silence stop faster." aria-label="How long the browser should trust the server's voice-activity detector after it reports speech. Higher values smooth detection; lower values make silence stop faster.">i</span></label>
                         <input id="vadHoldMs" type="number" min="0" max="5000" step="50">
                     </div>
                 </div>
@@ -634,34 +684,34 @@
             <div class="config-body">
                 <div class="config-grid">
                     <div class="config-field">
-                        <label for="wakewordEnabled">Wakeword enabled</label>
+                        <label for="wakewordEnabled">Wakeword enabled <span class="info-badge" tabindex="0" data-info="Turns the local wakeword detector on or off for wakeword mode. When disabled, wakeword mode behaves like a normal always-listening mode." aria-label="Turns the local wakeword detector on or off for wakeword mode. When disabled, wakeword mode behaves like a normal always-listening mode.">i</span></label>
                         <select id="wakewordEnabled">
                             <option value="true">Enabled</option>
                             <option value="false">Disabled</option>
                         </select>
                     </div>
                     <div class="config-field">
-                        <label for="wakewordPhrase">Wake phrase</label>
+                        <label for="wakewordPhrase">Wake phrase <span class="info-badge" tabindex="0" data-info="The exact phrase the local detector tries to hear before it starts capturing a command. Choose something short and distinct that Whisper tends to transcribe consistently." aria-label="The exact phrase the local detector tries to hear before it starts capturing a command. Choose something short and distinct that Whisper tends to transcribe consistently.">i</span></label>
                         <input id="wakewordPhrase" type="text" maxlength="120" placeholder="hey claw">
                     </div>
                     <div class="config-field">
-                        <label for="wakewordWindowSeconds">Window seconds</label>
+                        <label for="wakewordWindowSeconds">Window seconds <span class="info-badge" tabindex="0" data-info="How much recent audio the detector checks at once when searching for the wake phrase. Larger windows can catch slower phrases, but cost more compute." aria-label="How much recent audio the detector checks at once when searching for the wake phrase. Larger windows can catch slower phrases, but cost more compute.">i</span></label>
                         <input id="wakewordWindowSeconds" type="number" min="0.5" max="10" step="0.1">
                     </div>
                     <div class="config-field">
-                        <label for="wakewordMinAudioSeconds">Minimum audio seconds</label>
+                        <label for="wakewordMinAudioSeconds">Minimum audio seconds <span class="info-badge" tabindex="0" data-info="The minimum amount of audio the detector collects before it attempts a wakeword check. Raise it if you want fewer checks; lower it if you want faster wake detection." aria-label="The minimum amount of audio the detector collects before it attempts a wakeword check. Raise it if you want fewer checks; lower it if you want faster wake detection.">i</span></label>
                         <input id="wakewordMinAudioSeconds" type="number" min="0.1" max="10" step="0.1">
                     </div>
                     <div class="config-field">
-                        <label for="wakewordDetectIntervalSeconds">Detect interval seconds</label>
+                        <label for="wakewordDetectIntervalSeconds">Detect interval seconds <span class="info-badge" tabindex="0" data-info="How often the detector re-runs recognition while armed and waiting for the wake phrase. Smaller values feel faster but use more CPU." aria-label="How often the detector re-runs recognition while armed and waiting for the wake phrase. Smaller values feel faster but use more CPU.">i</span></label>
                         <input id="wakewordDetectIntervalSeconds" type="number" min="0.1" max="10" step="0.1">
                     </div>
                     <div class="config-field">
-                        <label for="wakewordCooldownSeconds">Cooldown seconds</label>
+                        <label for="wakewordCooldownSeconds">Cooldown seconds <span class="info-badge" tabindex="0" data-info="How long the detector waits after a wakeword trigger before it can trigger again. Increase this if repeated detections happen too easily." aria-label="How long the detector waits after a wakeword trigger before it can trigger again. Increase this if repeated detections happen too easily.">i</span></label>
                         <input id="wakewordCooldownSeconds" type="number" min="0" max="30" step="0.1">
                     </div>
                     <div class="config-field">
-                        <label for="wakewordPrerollSeconds">Preroll seconds</label>
+                        <label for="wakewordPrerollSeconds">Preroll seconds <span class="info-badge" tabindex="0" data-info="How much audio from just before the wakeword should be kept and added to the command recording. This can help avoid clipping the first words after the trigger." aria-label="How much audio from just before the wakeword should be kept and added to the command recording. This can help avoid clipping the first words after the trigger.">i</span></label>
                         <input id="wakewordPrerollSeconds" type="number" min="0" max="5" step="0.1">
                     </div>
                 </div>
@@ -1182,7 +1232,7 @@
             scrollConversationToBottom();
         }
 
-        function playWakewordDing() {
+        async function playWakewordDing() {
             const AudioCtx = window.AudioContext || window.webkitAudioContext;
             if (!AudioCtx) return;
 
@@ -1191,13 +1241,22 @@
             }
 
             const audioCtx = wakewordCueContext;
+            if (audioCtx.state === 'suspended') {
+                try {
+                    await audioCtx.resume();
+                } catch (err) {
+                    console.warn('Wakeword ding audio resume failed:', err);
+                    return;
+                }
+            }
+
             const startAt = audioCtx.currentTime + 0.01;
             const gainNode = audioCtx.createGain();
             const firstTone = audioCtx.createOscillator();
             const secondTone = audioCtx.createOscillator();
 
             gainNode.gain.setValueAtTime(0.0001, startAt);
-            gainNode.gain.exponentialRampToValueAtTime(0.14, startAt + 0.02);
+            gainNode.gain.exponentialRampToValueAtTime(0.22, startAt + 0.02);
             gainNode.gain.exponentialRampToValueAtTime(0.0001, startAt + 0.28);
 
             firstTone.type = 'sine';

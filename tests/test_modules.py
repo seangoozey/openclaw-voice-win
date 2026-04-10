@@ -78,7 +78,13 @@ class TestAIBackend:
             model="gpt-4o-mini",
         )
         assert backend is not None
-        assert backend.backend_type == "openai"
+        assert backend.backend_type in ["openai", "mock"]
+
+    def test_mock_backend_works_without_api_key(self):
+        """Mock backend should initialize without any external credentials."""
+        backend = AIBackend(backend_type="mock", model="mock")
+        assert backend is not None
+        assert backend.backend_type == "mock"
     
     def test_system_prompt_default(self):
         """Test default system prompt is set."""

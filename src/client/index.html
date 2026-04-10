@@ -16,17 +16,113 @@
             background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
             color: #fff;
             min-height: 100vh;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
             padding: 20px;
         }
         
+        .app-shell {
+            min-height: calc(100vh - 40px);
+            display: grid;
+            grid-template-columns: minmax(320px, 1fr) minmax(340px, 50vw);
+            gap: 20px;
+            align-items: stretch;
+        }
+
+        .app-shell.panel-collapsed {
+            grid-template-columns: minmax(320px, 1fr) 56px;
+        }
+
+        .main-panel {
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+        }
+
         .container {
-            max-width: 600px;
+            max-width: 720px;
             width: 100%;
             text-align: center;
+            margin: auto;
+        }
+
+        .conversation-panel {
+            position: relative;
+            min-width: 0;
+            border-radius: 24px;
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            background: rgba(7, 10, 20, 0.72);
+            backdrop-filter: blur(20px);
+            overflow: hidden;
+            box-shadow: 0 18px 48px rgba(0, 0, 0, 0.28);
+        }
+
+        .conversation-shell {
+            min-height: calc(100vh - 40px);
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .conversation-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            padding: 18px 20px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+        }
+
+        .conversation-title {
+            font-size: 0.9rem;
+            color: #8d95a8;
+            text-transform: uppercase;
+            letter-spacing: 0.12em;
+        }
+
+        .collapse-btn {
+            border: 1px solid rgba(255, 255, 255, 0.12);
+            background: rgba(255, 255, 255, 0.03);
+            color: #d9dfeb;
+            border-radius: 999px;
+            width: 36px;
+            height: 36px;
+            cursor: pointer;
+            font: inherit;
+            transition: 0.2s ease;
+        }
+
+        .collapse-btn:hover {
+            border-color: #ff6b35;
+            color: #ff6b35;
+        }
+
+        .panel-collapsed .conversation-shell {
+            visibility: hidden;
+            opacity: 0;
+            pointer-events: none;
+        }
+
+        .panel-collapsed .conversation-panel {
+            overflow: visible;
+        }
+
+        .panel-collapsed .conversation-panel::before {
+            content: "Conversation";
+            position: absolute;
+            inset: 20px auto 20px 50%;
+            transform: translateX(-50%) rotate(180deg);
+            writing-mode: vertical-rl;
+            color: #aeb4c2;
+            letter-spacing: 0.14em;
+            font-size: 0.78rem;
+            text-transform: uppercase;
+        }
+
+        .panel-collapsed .collapse-btn {
+            position: absolute;
+            top: 12px;
+            left: 50%;
+            transform: translateX(-50%) rotate(180deg);
+            z-index: 1;
         }
         
         h1 {
@@ -80,66 +176,59 @@
             50% { box-shadow: 0 10px 60px rgba(255, 107, 53, 0.6); }
         }
         
-        .continuous-toggle {
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            gap: 12px;
+        .mode-section {
             margin-bottom: 20px;
         }
-        
-        .toggle-switch {
-            position: relative;
-            width: 56px;
-            height: 30px;
+
+        .mode-title {
+            font-size: 0.9rem;
+            text-transform: uppercase;
+            letter-spacing: 0.12em;
+            color: #8d95a8;
+            margin-bottom: 10px;
         }
-        
-        .toggle-switch input {
+
+        .mode-toggle {
+            display: flex;
+            justify-content: center;
+            gap: 6px;
+            padding: 6px;
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: 999px;
+        }
+
+        .mode-option {
+            flex: 1;
+        }
+
+        .mode-option input {
+            position: absolute;
             opacity: 0;
-            width: 0;
-            height: 0;
+            pointer-events: none;
         }
-        
-        .toggle-slider {
-            position: absolute;
+
+        .mode-option label {
+            display: block;
             cursor: pointer;
-            top: 0;
-            left: 0;
-            right: 0;
-            bottom: 0;
-            background: #333;
-            border-radius: 30px;
-            transition: 0.3s;
-        }
-        
-        .toggle-slider:before {
-            position: absolute;
-            content: "";
-            height: 22px;
-            width: 22px;
-            left: 4px;
-            bottom: 4px;
-            background: white;
-            border-radius: 50%;
-            transition: 0.3s;
-        }
-        
-        .toggle-switch input:checked + .toggle-slider {
-            background: #ff6b35;
-        }
-        
-        .toggle-switch input:checked + .toggle-slider:before {
-            transform: translateX(26px);
-        }
-        
-        .toggle-label {
+            padding: 10px 12px;
+            border-radius: 999px;
             font-weight: 600;
-            color: #fff;
+            color: #aeb4c2;
+            transition: 0.2s ease;
+            user-select: none;
         }
-        
-        .toggle-hint {
-            color: #666;
+
+        .mode-option input:checked + label {
+            background: linear-gradient(135deg, #ff6b35 0%, #e55a2b 100%);
+            color: #fff;
+            box-shadow: 0 8px 24px rgba(255, 107, 53, 0.25);
+        }
+
+        .mode-hint {
+            color: #8d95a8;
             font-size: 0.85rem;
+            margin-top: 10px;
         }
         
         .status {
@@ -154,12 +243,14 @@
         }
         
         .transcript-box {
-            background: rgba(255, 255, 255, 0.05);
-            border-radius: 12px;
+            background: transparent;
+            border-radius: 0;
             padding: 20px;
-            margin-bottom: 20px;
+            margin-bottom: 0;
             text-align: left;
-            min-height: 100px;
+            min-height: 0;
+            flex: 1;
+            overflow-y: auto;
         }
         
         .transcript-box h3 {
@@ -213,7 +304,7 @@
             display: flex;
             gap: 10px;
             justify-content: center;
-            margin-top: 20px;
+            padding: 0 20px 20px;
         }
         
         .controls button {
@@ -338,10 +429,43 @@
             font-size: 0.8rem;
             line-height: 1.4;
         }
+
+        @media (max-width: 960px) {
+            .app-shell,
+            .app-shell.panel-collapsed {
+                grid-template-columns: 1fr;
+            }
+
+            .conversation-panel {
+                min-height: 360px;
+            }
+
+            .conversation-shell {
+                min-height: 360px;
+            }
+
+            .app-shell.panel-collapsed .conversation-panel {
+                min-height: 64px;
+            }
+
+            .app-shell.panel-collapsed .conversation-panel::before {
+                inset: 50% auto auto 20px;
+                transform: translateY(-50%);
+                writing-mode: horizontal-tb;
+            }
+
+            .app-shell.panel-collapsed .collapse-btn {
+                left: auto;
+                right: 12px;
+                transform: rotate(180deg);
+            }
+        }
     </style>
 </head>
 <body>
-    <div class="container">
+    <div class="app-shell" id="appShell">
+        <div class="main-panel">
+            <div class="container">
         <h1>🎙️ OpenClaw Voice</h1>
         <p class="subtitle">Self-hosted voice AI interface</p>
         
@@ -349,17 +473,27 @@
             Hold to Talk
         </button>
         
-        <div class="continuous-toggle">
-            <label class="toggle-switch">
-                <input type="checkbox" id="continuousMode">
-                <span class="toggle-slider"></span>
-            </label>
-            <span class="toggle-label">Continuous Mode</span>
-            <span class="toggle-hint">(hands-free, like Grok)</span>
+        <div class="mode-section">
+            <p class="mode-title">Listening Mode</p>
+            <div class="mode-toggle">
+                <div class="mode-option">
+                    <input type="radio" name="listenMode" id="modePushToTalk" value="push" checked>
+                    <label for="modePushToTalk">Push-to-Talk</label>
+                </div>
+                <div class="mode-option">
+                    <input type="radio" name="listenMode" id="modeContinuous" value="continuous">
+                    <label for="modeContinuous">Continuous</label>
+                </div>
+                <div class="mode-option">
+                    <input type="radio" name="listenMode" id="modeWakeword" value="wakeword">
+                    <label for="modeWakeword">WakeWord</label>
+                </div>
+            </div>
+            <p class="mode-hint" id="modeHint">Hold the button while you speak.</p>
         </div>
 
         <details class="config-panel">
-            <summary>Continuous Mode Tuning</summary>
+            <summary>Auto-Listen Tuning</summary>
             <div class="config-body">
                 <div class="config-grid">
                     <div class="config-field">
@@ -398,15 +532,6 @@
         
         <p class="status" id="status">Ready</p>
         
-        <div class="transcript-box">
-            <h3>Conversation</h3>
-            <div id="transcript"></div>
-        </div>
-        
-        <div class="controls">
-            <button id="clearBtn">Clear History</button>
-        </div>
-        
         <p class="error" id="error"></p>
         
         <div class="instructions">
@@ -415,19 +540,40 @@
             <p style="margin-top: 10px;">Keyboard: <code>Space</code> to toggle recording.</p>
         </div>
         
-        <footer style="margin-top: 40px; padding-top: 20px; border-top: 1px solid #333; font-size: 0.8rem; color: #555;">
+            </div>
+        </div>
+
+        <aside class="conversation-panel">
+            <button class="collapse-btn" id="collapseConversationBtn" type="button" aria-label="Collapse conversation panel">→</button>
+            <div class="conversation-shell">
+                <div class="conversation-header">
+                    <h3 class="conversation-title">Conversation</h3>
+                </div>
+                <div class="transcript-box" id="transcriptBox">
+                    <div id="transcript"></div>
+                </div>
+                <div class="controls">
+                    <button id="clearBtn">Clear History</button>
+                </div>
+            </div>
+        </aside>
+    </div>
+
+    <footer style="margin-top: 20px; padding-top: 20px; border-top: 1px solid #333; font-size: 0.8rem; color: #555;">
             <p>Built with 🦀 by <a href="https://purplehorizons.io" target="_blank" style="color: #888; text-decoration: none;">Purple Horizons</a></p>
             <p style="margin-top: 5px;"><a href="https://github.com/Purple-Horizons/openclaw-voice" target="_blank" style="color: #666; text-decoration: none;">GitHub</a> · <a href="https://openclaw.ai" target="_blank" style="color: #666; text-decoration: none;">OpenClaw</a></p>
         </footer>
-    </div>
-
     <script>
+        const appShell = document.getElementById('appShell');
         const voiceBtn = document.getElementById('voiceBtn');
         const statusEl = document.getElementById('status');
+        const transcriptBoxEl = document.getElementById('transcriptBox');
         const transcriptEl = document.getElementById('transcript');
         const errorEl = document.getElementById('error');
         const clearBtn = document.getElementById('clearBtn');
-        const continuousModeToggle = document.getElementById('continuousMode');
+        const collapseConversationBtn = document.getElementById('collapseConversationBtn');
+        const modeHint = document.getElementById('modeHint');
+        const listenModeInputs = Array.from(document.querySelectorAll('input[name="listenMode"]'));
         const saveConfigBtn = document.getElementById('saveConfigBtn');
         const resetConfigBtn = document.getElementById('resetConfigBtn');
         const configMeta = document.getElementById('configMeta');
@@ -456,7 +602,7 @@
         let monitorGain = null;
         let mediaStream = null;
         let isRecording = false;
-        let continuousMode = false;
+        let currentMode = 'push';
         let continuousConfig = { ...defaultContinuousConfig };
         let isAssistantSpeaking = false;
         let pendingAutoRestart = null;
@@ -531,17 +677,50 @@
             }
         }
 
+        function isAutoMode() {
+            return currentMode === 'continuous' || currentMode === 'wakeword';
+        }
+
+        function isWakewordMode() {
+            return currentMode === 'wakeword';
+        }
+
+        function updateVoiceButtonLabel() {
+            if (isRecording) {
+                voiceBtn.textContent = isWakewordMode() ? 'Wakeword Armed' : 'Listening...';
+                return;
+            }
+            if (currentMode === 'push') {
+                voiceBtn.textContent = 'Hold to Talk';
+            } else if (currentMode === 'continuous') {
+                voiceBtn.textContent = 'Tap to Talk';
+            } else {
+                voiceBtn.textContent = 'Arm Wakeword';
+            }
+        }
+
+        function updateModeUi() {
+            if (currentMode === 'push') {
+                modeHint.textContent = 'Hold the button while you speak.';
+            } else if (currentMode === 'continuous') {
+                modeHint.textContent = 'Tap once to start. It will keep cycling after each reply.';
+            } else {
+                modeHint.textContent = 'Tap once to arm listening, then say your wake phrase.';
+            }
+            updateVoiceButtonLabel();
+        }
+
         function isPlaybackSettled() {
             return responseCompleteReceived && !isPlayingQueue && audioQueue.length === 0;
         }
 
         function scheduleAutoRestart() {
             clearPendingAutoRestart();
-            if (!continuousMode || isRecording || isAssistantSpeaking) return;
-            setStatus('Ready to listen...', true);
+            if (!isAutoMode() || isRecording || isAssistantSpeaking) return;
+            setStatus(isWakewordMode() ? 'Ready to arm wakeword...' : 'Ready to listen...', true);
             pendingAutoRestart = setTimeout(() => {
                 pendingAutoRestart = null;
-                if (continuousMode && !isRecording && !isAssistantSpeaking) {
+                if (isAutoMode() && !isRecording && !isAssistantSpeaking) {
                     startRecording();
                 }
             }, getConfigValue('restart_delay_ms'));
@@ -601,7 +780,12 @@
             switch (msg.type) {
                 case 'listening_started':
                     clearPendingAutoRestart();
-                    setStatus(msg.mode === 'wakeword' ? 'Waiting for wakeword...' : (continuousMode ? 'Listening (continuous)...' : 'Listening...'), true);
+                    setStatus(
+                        msg.mode === 'wakeword'
+                            ? 'Waiting for wakeword...'
+                            : (currentMode === 'continuous' ? 'Listening (continuous)...' : 'Listening...'),
+                        true
+                    );
                     break;
                 case 'listening_stopped':
                     setStatus('Processing...');
@@ -673,7 +857,7 @@
                 transcriptEl.appendChild(currentResponseElement);
             }
             setTranscriptLine(currentResponseElement, 'AI', text);
-            transcriptEl.scrollTop = transcriptEl.scrollHeight;
+            scrollConversationToBottom();
         }
         
         function queueAudioChunk(base64Data, sampleRate) {
@@ -731,7 +915,7 @@
         
         function onAudioComplete() {
             isAssistantSpeaking = false;
-            if (continuousMode) {
+            if (isAutoMode()) {
                 scheduleAutoRestart();
             } else {
                 setStatus('Ready');
@@ -742,13 +926,17 @@
             statusEl.textContent = text;
             statusEl.className = active ? 'status active' : 'status';
         }
+
+        function scrollConversationToBottom() {
+            transcriptBoxEl.scrollTop = transcriptBoxEl.scrollHeight;
+        }
         
         function addTranscript(speaker, text, className) {
             const p = document.createElement('p');
             p.className = className;
             setTranscriptLine(p, speaker, text);
             transcriptEl.appendChild(p);
-            transcriptEl.scrollTop = transcriptEl.scrollHeight;
+            scrollConversationToBottom();
         }
 
         function setTranscriptLine(element, speaker, text) {
@@ -798,7 +986,7 @@
                         const base64 = float32ToBase64(audioData);
                         ws.send(JSON.stringify({ type: 'audio', data: base64 }));
                         
-                        if (continuousMode) {
+                        if (isAutoMode()) {
                             const now = Date.now();
                             if (now - recordingStartedAt < getConfigValue('mic_warmup_ms')) {
                                 return;
@@ -831,11 +1019,11 @@
                 
                 isRecording = true;
                 voiceBtn.classList.add('listening');
-                voiceBtn.textContent = 'Listening...';
+                updateVoiceButtonLabel();
                 
                 ws.send(JSON.stringify({
                     type: 'start_listening',
-                    mode: continuousMode ? 'continuous' : 'manual',
+                    mode: currentMode === 'push' ? 'manual' : currentMode,
                 }));
                 
             } catch (err) {
@@ -848,9 +1036,9 @@
             
             isRecording = false;
             voiceBtn.classList.remove('listening');
-            voiceBtn.textContent = continuousMode ? 'Tap to Talk' : 'Hold to Talk';
+            updateVoiceButtonLabel();
             
-            // Disconnect processor but keep stream for continuous mode
+            // Disconnect processor but keep stream for auto-listen modes
             if (audioProcessor) {
                 audioProcessor.disconnect();
                 audioProcessor = null;
@@ -868,8 +1056,8 @@
                 audioContext = null;
             }
             
-            // Only release stream if not in continuous mode
-            if (!continuousMode && mediaStream) {
+            // Only release stream if not in continuous/wakeword modes
+            if (!isAutoMode() && mediaStream) {
                 mediaStream.getTracks().forEach(track => track.stop());
                 mediaStream = null;
             }
@@ -922,25 +1110,25 @@
         
         // Event listeners
         voiceBtn.addEventListener('mousedown', () => {
-            if (!continuousMode) startRecording();
+            if (currentMode === 'push') startRecording();
         });
         voiceBtn.addEventListener('mouseup', () => {
-            if (!continuousMode) stopRecording();
+            if (currentMode === 'push') stopRecording();
         });
         voiceBtn.addEventListener('mouseleave', () => {
-            if (!continuousMode) stopRecording();
+            if (currentMode === 'push') stopRecording();
         });
         voiceBtn.addEventListener('touchstart', (e) => { 
             e.preventDefault(); 
-            if (!continuousMode) startRecording();
+            if (currentMode === 'push') startRecording();
         });
         voiceBtn.addEventListener('touchend', () => {
-            if (!continuousMode) stopRecording();
+            if (currentMode === 'push') stopRecording();
         });
         
-        // Tap for continuous mode
+        // Tap for auto-listen modes
         voiceBtn.addEventListener('click', () => {
-            if (continuousMode) {
+            if (isAutoMode()) {
                 if (isRecording) {
                     stopRecording();
                 } else {
@@ -963,28 +1151,38 @@
         
         clearBtn.addEventListener('click', () => {
             transcriptEl.innerHTML = '';
+            scrollConversationToBottom();
+        });
+
+        collapseConversationBtn.addEventListener('click', () => {
+            appShell.classList.toggle('panel-collapsed');
+            const isCollapsed = appShell.classList.contains('panel-collapsed');
+            collapseConversationBtn.textContent = isCollapsed ? '←' : '→';
+            collapseConversationBtn.setAttribute(
+                'aria-label',
+                isCollapsed ? 'Expand conversation panel' : 'Collapse conversation panel'
+            );
         });
         
-        // Continuous mode toggle
-        continuousModeToggle.addEventListener('change', (e) => {
-            continuousMode = e.target.checked;
-            voiceBtn.textContent = continuousMode ? 'Tap to Talk' : 'Hold to Talk';
-            
-            if (continuousMode) {
-                setStatus('Continuous mode ON - tap to start', true);
-                // Pre-request mic permission
-                navigator.mediaDevices.getUserMedia({ audio: true })
-                    .then(stream => { mediaStream = stream; })
-                    .catch(err => { errorEl.textContent = `Mic access needed: ${err.message}`; });
-            } else {
-                clearPendingAutoRestart();
-                setStatus('Ready');
-                // Release mic
-                if (mediaStream && !isRecording) {
-                    mediaStream.getTracks().forEach(track => track.stop());
-                    mediaStream = null;
+        listenModeInputs.forEach((input) => {
+            input.addEventListener('change', (e) => {
+                currentMode = e.target.value;
+                updateModeUi();
+
+                if (isAutoMode()) {
+                    setStatus(currentMode === 'wakeword' ? 'Wakeword mode ON - tap to arm' : 'Continuous mode ON - tap to start', true);
+                    navigator.mediaDevices.getUserMedia({ audio: true })
+                        .then(stream => { mediaStream = stream; })
+                        .catch(err => { errorEl.textContent = `Mic access needed: ${err.message}`; });
+                } else {
+                    clearPendingAutoRestart();
+                    setStatus('Ready');
+                    if (mediaStream && !isRecording) {
+                        mediaStream.getTracks().forEach(track => track.stop());
+                        mediaStream = null;
+                    }
                 }
-            }
+            });
         });
 
         saveConfigBtn.addEventListener('click', async () => {
@@ -1009,6 +1207,7 @@
         });
         
         // Connect on load
+        updateModeUi();
         loadContinuousConfig();
         connect();
         

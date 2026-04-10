@@ -75,6 +75,7 @@ class Settings(BaseSettings):
     # Audio
     sample_rate: int = 16000
     client_config_path: str = "voice-ui-config.json"
+    mock_mode: bool = False
     wakeword_enabled: bool = False
     wakeword_phrase: str = "hey claw"
     wakeword_window_seconds: float = 2.4
@@ -203,6 +204,8 @@ async def startup():
     global stt, tts, backend, vad
     
     logger.info("Initializing OpenClaw Voice server...")
+    if settings.mock_mode:
+        logger.warning("Mock mode enabled: backend and TTS will use local mock implementations")
     
     # Load API keys
     load_keys_from_env()
@@ -220,9 +223,10 @@ async def startup():
     )
     
     # Initialize TTS
-    logger.info(f"Loading TTS model: {settings.tts_model}")
+    resolved_tts_model = "mock" if settings.mock_mode else settings.tts_model
+    logger.info(f"Loading TTS model: {resolved_tts_model}")
     tts = ChatterboxTTS(
-        model_name=settings.tts_model,
+        model_name=resolved_tts_model,
         voice_sample=settings.tts_voice,
         base_url=settings.tts_url,
         api_key=settings.tts_api_key,
@@ -234,7 +238,19 @@ async def startup():
     gateway_url = settings.openclaw_gateway_url or os.getenv("OPENCLAW_GATEWAY_URL")
     gateway_token = settings.openclaw_gateway_token or os.getenv("OPENCLAW_GATEWAY_TOKEN")
     
-    if gateway_url and gateway_token:
+    if settings.mock_mode:
+        logger.info("Using mock backend")
+        backend = AIBackend(
+            backend_type="mock",
+            url=settings.backend_url,
+            model="mock",
+            api_key=None,
+            system_prompt=(
+                "You are a local mock voice assistant used for offline testing. "
+                "Reply briefly and acknowledge the user's request."
+            ),
+        )
+    elif gateway_url and gateway_token:
         # Use OpenClaw gateway (connects to Aria!)
         logger.info(f"🦞 Connecting to OpenClaw gateway: {gateway_url}")
         backend = AIBackend(
@@ -405,10 +421,10 @@ async def websocket_endpoint(websocket: WebSocket):
                 is_listening = True
                 audio_buffer = []
                 listening_mode = msg.get("mode", "manual")
-                wakeword_active = not (settings.wakeword_enabled and listening_mode == "continuous")
+                wakeword_active = not (settings.wakeword_enabled and listening_mode == "wakeword")
                 wakeword_detector = None
 
-                if settings.wakeword_enabled and listening_mode == "continuous":
+                if settings.wakeword_enabled and listening_mode == "wakeword":
                     wakeword_detector = WakeWordDetector(
                         stt=stt,
                         phrase=settings.wakeword_phrase,
@@ -442,7 +458,7 @@ async def websocket_endpoint(websocket: WebSocket):
                     # Transcribe
                     logger.debug("Transcribing audio...")
                     transcript = await stt.transcribe(audio_data)
-                    if settings.wakeword_enabled and listening_mode == "continuous":
+                    if settings.wakeword_enabled and listening_mode == "wakeword":
                         transcript = strip_wakeword(transcript, settings.wakeword_phrase)
                     
                     await websocket.send_json({

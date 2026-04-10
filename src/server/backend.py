@@ -33,7 +33,17 @@ class AIBackend:
     
     def _setup_client(self):
         """Set up the API client."""
+        if self.backend_type == "mock":
+            logger.info("Mock AI backend enabled")
+            self._client = None
+            return
+
         if self.backend_type == "openai":
+            if not self.api_key:
+                logger.warning("No API key configured for OpenAI backend; using mock responses")
+                self.backend_type = "mock"
+                self._client = None
+                return
             try:
                 from openai import AsyncOpenAI
                 self._client = AsyncOpenAI(

@@ -78,6 +78,7 @@ PYTHONPATH=. ELEVENLABS_API_KEY="$ELEVENLABS_API_KEY" OPENAI_API_KEY="$OPENAI_AP
 | `OPENCLAW_TTS_URL` | No | - | Remote Chatterbox/OpenAI-compatible speech endpoint |
 | `OPENCLAW_TTS_API_KEY` | No | - | Bearer token for remote TTS endpoint |
 | `OPENCLAW_TTS_VOICE_ID` | No | - | Voice name/id sent to remote TTS or ElevenLabs |
+| `OPENCLAW_MOCK_MODE` | No | `false` | Run with mock backend and mock TTS for offline testing |
 | `OPENCLAW_REQUIRE_AUTH` | No | `false` | Require API keys for clients |
 | `OPENCLAW_WAKEWORD_ENABLED` | No | `false` | Use local wakeword detection during continuous mode |
 | `OPENCLAW_WAKEWORD_PHRASE` | No | `hey claw` | Phrase to listen for before normal transcription |
@@ -94,6 +95,17 @@ OPENCLAW_WAKEWORD_PHRASE=hey claw
 ```
 
 With that enabled, continuous mode will wait for the wake phrase, then switch into the existing listen/transcribe/respond flow.
+
+### Full Mock Mode
+
+If you want to boot the app without OpenClaw, OpenAI, or a local TTS service running, enable:
+
+```env
+OPENCLAW_MOCK_MODE=true
+OPENCLAW_STT_ALLOW_MOCK=true
+```
+
+That uses a mock AI backend and mock TTS so the UI and websocket flow can run fully offline.
 
 *One of `OPENAI_API_KEY` or `OPENCLAW_GATEWAY_URL` required.
 
